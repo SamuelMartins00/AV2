@@ -6,7 +6,7 @@ As justificativas completas estão em `DECISOES.md`
 
 A AV2 pede para transformar o greencode de uma CLI com arquivos criptografados (a AV1) em um **servidor monolítico HTTP com API REST**, persistindo em **banco relacional via Prisma ORM**. **IMPORTANTE:** o código importa, mas **a capacidade de justificar as decisões arquiteturais, trade-offs e alternativas rejeitadas é o que será mais valorizado**.
 
-AV2: mesmo domínio (Organização, Contrato, Lote, Equipamento, Movimentação, usuários e papéis), mesmas regras de negócio, nova infraestrutura (Node + TypeScript + Express + Prisma + MySQL + JWT).
+AV2: mesmo domínio (Organização, Contrato, Lote, Equipamento, Movimentação, usuários e papéis), mesmas regras de negócio, nova infraestrutura (Node + TypeScript + Fastify + Prisma + MySQL + JWT).
 
 O que precisa existir ao final:
 
@@ -23,17 +23,17 @@ O domínio e as regras de negócio permanecem; mudam a interface, a persistênci
 
 | Aspecto | AV1 (CLI) | AV2 (servidor) | O que fazer com o código |
 | --- | --- | --- | --- |
-| Interface | `CLIInterface` com readline, menu por papel | API REST HTTP (Express) | Substituir a CLI por controllers e rotas; a checagem `podeExecutar(modulo, acao)` vira middleware de autorização por papel |
+| Interface | `CLIInterface` com readline, menu por papel | API REST HTTP (Fastify) | Substituir a CLI por controllers e rotas; a checagem `podeExecutar(modulo, acao)` vira guard de autorização por papel (hook do Fastify) |
 | Persistência | Arquivos de texto com AES-256, escrita atômica via arquivo temporário | MySQL via Prisma ORM | `RepositorioArquivo` e `CriptografiaArquivo` são substituídos por repositórios Prisma |
 | Auditoria | Journal em arquivo (rotação 10 MB, retenção 180 dias) | Tabela `JournalTransacao` no banco | `JournalTransacao` vira modelo Prisma, gravado na mesma transação da operação |
-| Autenticação | Sessões em memória, expiração em 30 min, SHA-256 | JWT de acesso curto + refresh token, senha com bcryptjs | `ServicoAutenticacao` + `Sessao` viram login, renovação, logout e middleware de validação do token |
+| Autenticação | Sessões em memória, expiração em 30 min, SHA-256 | JWT de acesso curto + refresh token, senha com bcryptjs | `ServicoAutenticacao` + `Sessao` viram login, renovação, logout e hook de validação do token |
 | Concorrência | Atomicidade por arquivo | `$transaction` + versionamento otimista | Identificar operações multi-passo e proteger com transação |
 | Validações | Em código (CNPJ, datas, estados) | Em código e no banco (unique, constraints) | Manter os validadores e adicionar restrições no schema |
 | Parâmetros globais | `ParametrosGlobais` (alíquota, depreciação, valor base) em arquivo | Tabela de configuração | Modelo `ConfiguracaoGlobal` com uma única linha |
 | Dados de teste | Scripts de jornada de usuário | Script de seed no Prisma | Reproduzir os cenários de validação da AV1 |
 | Provisionamento | Arquivo mestre com chave AES e 1º admin | Variáveis de ambiente + seed do 1º admin | Chave de criptografia deixa de existir; `JWT_SECRET` e `DATABASE_URL` entram |
 
-O que **sai** do sistema: criptografia de arquivos, readline, histórico de comandos, rotação de arquivo de journal. O que **entra**: HTTP, banco relacional, migrações, JWT, validação de entrada nas rotas.
+O que **sai** do sistema: criptografia de arquivos, readline, histórico de comandos, rotação de arquivo de journal. O que **entra**: HTTP, banco relacional, migrações, JWT, validação de entrada por JSON Schema.
 
 Reaproveitamento direto do código da AV1: `dominio`, `enums`, `validadores`, `fabricas` e a lógica dos `servicos`. Descartar: `persistencia`, `configuracao` e `cli`.
 
@@ -44,7 +44,7 @@ O servidor é um monólito em camadas Controller → Service → Repository, e c
 ```mermaid
 flowchart TD
     A["Cliente HTTP<br/>SPA futura, ThunderClient ou Postman, testes"]
-    B["Express: pipeline da requisição<br/>middleware valida o JWT e preenche req.user; guard confere o papel (401/403)<br/>validação de entrada; middleware central de erros<br/><i>AV1: sessão e menu por papel</i>"]
+    B["Fastify: pipeline da requisição<br/>hook valida o JWT e preenche request.user; guard confere o papel (401/403)<br/>JSON Schema valida a entrada; error handler central<br/><i>AV1: sessão e menu por papel</i>"]
     C["Controllers<br/>leem parâmetros, delegam ao service, devolvem a resposta<br/><i>AV1: CLIInterface</i>"]
     D["Services: regra de negócio<br/>ServicoAutenticacao, ServicoOrganizacao, ServicoLote, ServicoEquipamento, ServicoRelatorio<br/>validadores, transições de status, cálculos e $transaction<br/><i>AV1: serviços e Validador</i>"]
     E["Repositories: Prisma Client<br/>consultas tipadas, eager loading, checagem do campo versao<br/><i>AV1: RepositorioArquivo</i>"]
@@ -56,15 +56,15 @@ flowchart TD
     E -->|SQL gerado pelo Prisma| F
 ```
 
-A regra de ouro: dependências só apontam para baixo. Services não importam nada do Express (`req`, `res`) e controllers não importam o Prisma. Assim a mesma regra serve HTTP hoje e outra interface amanhã, como a atividade pede.
+A regra de ouro: dependências só apontam para baixo. Services não importam nada do Fastify (`request`, `reply`) e controllers não importam o Prisma. Assim a mesma regra serve HTTP hoje e outra interface amanhã, como a atividade pede.
 
 Possível estrutura de pastas:
 
 ```text
 src/
   server.ts               # inicialização, porta por variável de ambiente, graceful shutdown
-  app.ts                  # instância do Express, middlewares e registro de rotas (/api/v1)
-  middlewares/            # autenticação JWT, guard por papel, tratador de erros
+  app.ts                  # instância do Fastify, plugins e registro de rotas (/api/v1)
+  plugins/                # jwt, swagger, guard por papel, tratador de erros
   dominio/                # entidades, enums, fábricas e validadores (vindos da AV1)
   modules/
     auth/  organizacoes/  lotes/  equipamentos/  relatorios/  configuracao/
@@ -79,20 +79,20 @@ Mapeamento das classes do UML: `CLIInterface` vira os controllers; `ServicoAuten
 
 ## 4. Tecnologias
 
-A pilha obrigatória é **Node.js + TypeScript + Prisma ORM**. As escolhas pessoais são **Express** e **MySQL**, justificadas em `DECISOES.md`. Itens marcados como sugestão vêm desta pesquisa, não do enunciado.
+A pilha obrigatória é **Node.js + TypeScript + Prisma ORM**. A escolha pessoal de banco é **MySQL**; o framework é o **Fastify** recomendado pelo professor. Ambas estão justificadas em `DECISOES.md`. Itens marcados como sugestão vêm desta pesquisa, não do enunciado.
 
 | Tecnologia | Papel no sistema | Origem | Por que usar / alternativa |
 | --- | --- | --- | --- |
 | Node.js | Runtime do servidor | Obrigatória | I/O não bloqueante; mesma linguagem do front-end SPA futuro |
 | TypeScript | Tipagem dos contratos entre camadas | Obrigatória | Erros pegos em compilação; Prisma gera tipos |
 | Prisma ORM | Camada de persistência, migrações, `$transaction` | Obrigatória | Schema declarativo e cliente tipado; alternativa seria TypeORM/Knex (fora da pilha) |
-| Express (5) | Servidor HTTP e rotas | Escolha pessoal | Já usado em outra disciplina; Fastify é o recomendado no enunciado (mais rápido, validação nativa) |
+| Fastify | Servidor HTTP e rotas | Recomendada | Validação nativa por JSON Schema, tipos TypeScript embutidos, mais rápido que o Express; Express é a alternativa aceita |
 | MySQL 8 | Banco relacional | Escolha pessoal (familiaridade) | ACID (InnoDB), JSON, `CHECK` desde 8.0.16; PostgreSQL é o recomendado no enunciado |
-| `jsonwebtoken` | Assinar e verificar JWT | Necessária ao usar Express | Substitui o `@fastify/jwt` |
+| `@fastify/jwt` | Assinar e verificar JWT | Recomendada | Integra com os hooks do Fastify |
 | `bcryptjs` | Hash de senha | Escolha pessoal | JavaScript puro, instala sem compilar no Windows e no Ubuntu; substitui o SHA-256 da AV1 |
 | dotenv / `process.env` | Porta, `DATABASE_URL`, `JWT_SECRET` | Exigida (porta por variável de ambiente) | Configuração fora do código |
-| Zod | Validação de entrada das rotas | Sugestão | Substitui o JSON Schema nativo do Fastify; tipos inferidos em TypeScript |
-| `swagger-ui-express` + `openapi.yaml` | Documentação interativa (OpenAPI) | Sugestão | Cobre o requisito de "API documentada" |
+| JSON Schema nativo (Ajv) + TypeBox | Validação de entrada e saída das rotas | Nativo; TypeBox é sugestão | O Fastify valida sem biblioteca extra; TypeBox gera schema e tipo TypeScript juntos (type provider) |
+| `@fastify/swagger` + `@fastify/swagger-ui` | Documentação interativa (OpenAPI) | Sugestão | Gera a spec a partir dos schemas das rotas; cobre o requisito de "API documentada" |
 | Vitest ou Jest + `tsx` | Testes e execução TS em dev | Sugestão | Prova que as regras da AV1 foram transportadas |
 | Docker Compose (MySQL) | Banco local idêntico em Windows e Linux | Sugestão | Ajuda no requisito de multiplataforma |
 
@@ -234,13 +234,13 @@ Decisões tomadas (detalhadas em `DECISOES.md`): chave inteira autoincremental (
 
 ## 6. Autenticação JWT e autorização por papel
 
-O login troca credenciais por um **access token** JWT de vida curta (com id do usuário e papel) e um **refresh token** guardado no banco. Cada requisição envia o access token em `Authorization: Bearer <token>` e um middleware do Express o valida antes de chegar ao controller.
+O login troca credenciais por um **access token** JWT de vida curta (com id do usuário e papel) e um **refresh token** guardado no banco. Cada requisição envia o access token em `Authorization: Bearer <token>` e um hook do Fastify o valida antes de chegar ao controller.
 
 1. `POST /api/v1/auth/login` recebe usuário e senha.
 2. O serviço busca o usuário no banco e compara a senha com o hash (bcryptjs).
 3. Em caso de sucesso, assina um JWT com `sub` (id) e `papel` (sugestão: 15 min) e cria um refresh token aleatório, guardando apenas o hash dele na tabela `RefreshToken` (sugestão: 30 min, renovado a cada uso).
-4. Um middleware verifica o access token nas rotas protegidas e preenche `req.user`.
-5. Um segundo middleware (guard por rota) confere se o `papel` pode executar aquela ação; senão, responde 403.
+4. Um hook `onRequest` verifica o access token nas rotas protegidas e preenche `request.user`.
+5. Um segundo passo (guard por rota, em `preHandler`) confere se o `papel` pode executar aquela ação; senão, responde 403.
 6. `POST /api/v1/auth/refresh` troca um refresh token válido por um novo par de tokens (o antigo é revogado); `POST /api/v1/auth/logout` revoga o refresh token.
 
 Matriz de permissões confirmada no código da AV1 (`CLIInterface.podeExecutar`):
@@ -261,7 +261,7 @@ Decisões que o relatório justifica:
 - **Revogação.** O access token não é revogável antes de expirar (por isso é curto); o refresh token é revogável via banco, o que dá um `logout` real.
 - **Segredo.** `JWT_SECRET` vem de variável de ambiente, nunca do repositório.
 - **Senha.** Hash com bcryptjs e custo configurável; nunca devolver `hashSenha` em respostas da API.
-- **IDs previsíveis.** Com chave inteira, `/lotes/1` é adivinhável; por isso toda rota passa pelo middleware de autenticação e pelo guard de papel.
+- **IDs previsíveis.** Com chave inteira, `/lotes/1` é adivinhável; por isso toda rota passa pelo hook de autenticação e pelo guard de papel.
 
 ## 7. Regras de negócio
 
@@ -360,11 +360,11 @@ Os três relatórios correspondem aos métodos de `ServicoRelatorio` no UML. Usa
 
 O que o servidor precisa fazer na inicialização e no encerramento:
 
-- Ler `PORT`, `DATABASE_URL` e `JWT_SECRET` do ambiente, falhando com mensagem clara se faltar algo.
-- Registrar `express.json()`, as rotas por módulo (`auth`, `organizacoes`, `lotes`, `equipamentos`, `relatorios`, `configuracao`) e a documentação Swagger.
-- Validar a entrada de cada rota (Zod, por exemplo).
-- Um middleware de erros ao final da cadeia, que converte exceções de domínio e erros do Prisma em status HTTP. O Express 5 encaminha rejeições de handlers `async` ao middleware de erros; no Express 4 seria preciso tratá-las manualmente.
-- Ao receber `SIGINT` ou `SIGTERM`: `server.close()` (para de aceitar conexões e deixa terminar as ativas) e, no callback, `await prisma.$disconnect()` antes de `process.exit(0)`.
+- Ler `PORT`, `DATABASE_URL` e `JWT_SECRET` do ambiente, falhando com mensagem clara se faltar algo. Ouvir em `0.0.0.0` ao rodar em Docker ou na AWS (por padrão o Fastify escuta só em `localhost`).
+- Registrar plugins (JWT, swagger) e rotas por módulo (`auth`, `organizacoes`, `lotes`, `equipamentos`, `relatorios`, `configuracao`), cada módulo como plugin.
+- Validar entrada e saída com JSON Schema do Fastify, declarado em cada rota.
+- Um `setErrorHandler` central, que converte exceções de domínio e erros do Prisma em status HTTP.
+- Ao receber `SIGINT` ou `SIGTERM`: `await app.close()` (para de aceitar conexões e finaliza as ativas) e `await prisma.$disconnect()`.
 
 No Windows, `SIGTERM` não é entregue como no Linux; `SIGINT` (Ctrl+C) funciona nos dois. Testar o encerramento nas duas plataformas.
 
@@ -403,7 +403,7 @@ Decisões tomadas, com a alternativa descartada e o trade-off (versão completa 
 | Decisão | Alternativa rejeitada | Trade-off a discutir |
 | --- | --- | --- |
 | Monólito em camadas | Microsserviços | Simplicidade de implantação e depuração versus escala independente por módulo |
-| Express | Fastify | Familiaridade e reaproveitamento de estudo versus desempenho e validação nativa |
+| Fastify | Express | Validação e tipagem nativas, desempenho e recomendação do professor versus familiaridade e ecossistema maior do Express |
 | MySQL | PostgreSQL | Familiaridade versus recursos avançados e recomendação do enunciado |
 | Prisma ORM | SQL manual, outro ORM | Produtividade e tipos versus controle fino do SQL |
 | JWT curto + refresh token | Token único; sessões no servidor | Inatividade e logout real versus mais código e estado no banco |
@@ -421,10 +421,10 @@ Também explicar os limites do monólito (a atividade pede essa reflexão): o qu
 
 A ordem abaixo reduz retrabalho: primeiro o que tudo depende (banco e esqueleto), depois autenticação, depois o domínio, e por fim o que dá acabamento.
 
-1. **Preparar o ambiente.** Repositório novo, `npm init`, TypeScript, Express, Prisma, MySQL 8 via Docker. Copiar da AV1 `dominio`, `enums`, `validadores` e `fabricas`. Verificar que sobe em Windows e Ubuntu.
+1. **Preparar o ambiente.** Repositório novo, `npm init`, TypeScript, Fastify, Prisma, MySQL 8 via Docker. Copiar da AV1 `dominio`, `enums`, `validadores` e `fabricas`. Verificar que sobe em Windows e Ubuntu.
 2. **Modelar o banco.** Escrever `schema.prisma`, rodar a primeira migração, adicionar `CHECK` em SQL e o campo `versao`.
-3. **Esqueleto do servidor.** Porta por variável de ambiente, estrutura de pastas, middleware de erros e graceful shutdown.
-4. **Autenticação.** Modelos `Usuario` e `RefreshToken`, login com bcryptjs, JWT, refresh, logout, middleware de validação e guard por papel.
+3. **Esqueleto do servidor.** Porta por variável de ambiente, estrutura de pastas, error handler e graceful shutdown.
+4. **Autenticação.** Modelos `Usuario` e `RefreshToken`, login com bcryptjs, JWT, refresh, logout, hook de validação e guard por papel.
 5. **Portar os validadores da AV1.** `ValidadorCNPJ`, `ValidadorDataEntrada` e demais regras como funções reutilizáveis, com testes.
 6. **Organização, contrato e configuração.** Repositório, serviço, controller, rotas.
 7. **Lote e equipamento.** Criação de lote com equipamentos em transação, geração de código de barras, triagem, transições de status, movimentações.
@@ -445,7 +445,7 @@ O enunciado está deliberadamente aberto. Há pontos de decisão que devem ser r
 - **Parâmetros globais.** Resolvido: viram o modelo `ConfiguracaoGlobal`, editável só pelo administrador.
 - **Migração dos dados da AV1.** O enunciado aceita reinserir dados de teste, mas recomenda seed. Importar arquivos criptografados antigos não é exigido.
 - **Banco alvo.** Decidido: MySQL, por familiaridade (o enunciado recomenda PostgreSQL e cita MySQL como possibilidade).
-- **Framework.** Decidido: Express, porque outra disciplina usa o mesmo framework (o enunciado recomenda Fastify e aceita Express).
+- **Framework.** Decidido: Fastify, recomendado pelo professor, com validação nativa por JSON Schema e suporte embutido a TypeScript (Express seria a alternativa aceita).
 - **"Compatível com Windows e Ubuntu"** não diz como será verificado; preparar evidência. Usar a AWS para o Ubuntu, com capturas de tela, e testar o Windows localmente.
 - **Retenção do journal.** Definir se os 180 dias da AV1 continuam (limpeza agendada) ou se nada é apagado.
-- **Atividade seguinte.** O material do `greencode.txt` indica que a próxima etapa adiciona camada analítica e API pública com chaves de API e `rate-limit`. Manter os services desacoplados do Express e usar o prefixo `/api/v1` desde já.
+- **Atividade seguinte.** O material do `greencode.txt` indica que a próxima etapa adiciona camada analítica e API pública com chaves de API e `rate-limit`. Manter os services desacoplados do Fastify e usar o prefixo `/api/v1` desde já.
