@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    // Layout dos arquivos
+    "rootDir": "./src",
+    "outDir": "./dist",
+
+    // Ambiente: Node em ESM
+    "module": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023"],
+    "types": ["node"],
+
+    // Saída
+    "sourceMap": true,
+
+    // Tipagem rígida
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    // "exactOptionalPropertyTypes": true,  // desligada de propósito, ver nota abaixo
+
+    // Boas práticas
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
