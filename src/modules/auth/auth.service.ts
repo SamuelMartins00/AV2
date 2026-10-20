@@ -5,7 +5,11 @@ import { ErroDominio } from "../../dominio/erros.js";
 import type { Papel } from "../../dominio/papel.js";
 import { authRepository } from "./auth.repository.js";
 
-type AssinarToken = (payload: { sub: string; papel: Papel }) => string;
+type AssinarToken = (payload: {
+  sub: string;
+  usuario: string;
+  papel: Papel;
+}) => string;
 
 export interface ParTokens {
   accessToken: string;
@@ -26,15 +30,16 @@ const expiracaoDoRefresh = () =>
   new Date(Date.now() + env.refreshTtlMinutos * 60_000);
 
 export class AuthService {
-  constructor(private readonly assinar: AssinarToken) {}
+  constructor(private readonly assinar: AssinarToken) { }
 
   private montarPar(
     usuarioId: number,
+    usuario: string,
     papel: Papel,
     refreshToken: string,
   ): ParTokens {
     return {
-      accessToken: this.assinar({ sub: String(usuarioId), papel }),
+      accessToken: this.assinar({ sub: String(usuarioId), usuario, papel }),
       refreshToken,
       tipo: "Bearer",
     };
@@ -59,7 +64,7 @@ export class AuthService {
     );
     await authRepository.atualizarUltimoAcesso(registro.id);
 
-    return this.montarPar(registro.id, registro.papel, refreshToken);
+    return this.montarPar(registro.id, registro.usuario, registro.papel, refreshToken);
   }
 
   async renovar(refreshToken: string): Promise<ParTokens> {
@@ -97,7 +102,12 @@ export class AuthService {
       throw new ErroDominio("Refresh token já utilizado", 401);
     }
 
-    return this.montarPar(registro.usuarioId, registro.usuario.papel, novoToken);
+    return this.montarPar(
+      registro.usuarioId,
+      registro.usuario.usuario,
+      registro.usuario.papel,
+      novoToken,
+    );
   }
 
   async logout(refreshToken: string): Promise<void> {

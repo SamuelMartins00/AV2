@@ -4,8 +4,8 @@ import type { Papel } from "../dominio/papel.js";
 
 declare module "@fastify/jwt" {
   interface FastifyJWT {
-    payload: { sub: string; papel: Papel };
-    user: { sub: string; papel: Papel; iat: number; exp: number };
+    payload: { sub: string; usuario: string; papel: Papel };
+    user: { sub: string; usuario: string; papel: Papel; iat: number; exp: number };
   }
 }
 

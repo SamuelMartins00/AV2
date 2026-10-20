@@ -2,6 +2,7 @@ import Fastify, { type FastifyError } from "fastify";
 import { prisma } from "./config/prisma.js";
 import authRoutes from "./modules/auth/auth.routes.js";
 import authPlugin from "./plugins/auth.js";
+import organizacoesRoutes from "./modules/organizacoes/organizacoes.routes.js";
 
 export function buildApp() {
   const app = Fastify({ logger: true });
@@ -31,6 +32,8 @@ export function buildApp() {
     await prisma.$queryRaw`SELECT 1`;
     return { status: "ok" };
   });
+
+  app.register(organizacoesRoutes, { prefix: "/api/v1/organizacoes" });
 
   return app;
 }

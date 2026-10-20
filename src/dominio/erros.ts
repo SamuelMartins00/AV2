@@ -7,3 +7,12 @@ export class ErroDominio extends Error {
     this.name = "ErroDominio";
   }
 }
+
+export function ehViolacaoUnica(erro: unknown): boolean {
+  return (
+    typeof erro === "object" &&
+    erro !== null &&
+    "code" in erro &&
+    (erro as { code: unknown }).code === "P2002"
+  );
+}
