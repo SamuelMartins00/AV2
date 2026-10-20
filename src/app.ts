@@ -1,10 +1,12 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyError } from "fastify";
 import { prisma } from "./config/prisma.js";
+import authRoutes from "./modules/auth/auth.routes.js";
+import authPlugin from "./plugins/auth.js";
 
 export function buildApp() {
   const app = Fastify({ logger: true });
 
-  app.setErrorHandler((erro, request, reply) => {
+  app.setErrorHandler((erro: FastifyError, request, reply) => {
     const status =
       erro.statusCode && erro.statusCode >= 400 ? erro.statusCode : 500;
 
@@ -20,6 +22,10 @@ export function buildApp() {
   app.setNotFoundHandler((_request, reply) => {
     reply.status(404).send({ erro: "Rota não encontrada" });
   });
+
+  // A ordem importa: o plugin de autenticação deve vir antes das rotas
+  app.register(authPlugin);
+  app.register(authRoutes, { prefix: "/api/v1/auth" });
 
   app.get("/api/v1/saude", async () => {
     await prisma.$queryRaw`SELECT 1`;
