@@ -1,6 +1,7 @@
 import { lerData } from "../../dominio/contrato.js";
 import { ErroDominio } from "../../dominio/erros.js";
 import { comTentativas } from "../../dominio/tentativas.js";
+import { lerFimDoDia } from "../../dominio/periodo.js";
 import { mensagemErroDataEntrada } from "../../dominio/validadores/data-entrada.js";
 import { MSG_CONFLITO } from "../compartilhado/params.js";
 import { equipamentoParaResposta } from "../equipamentos/equipamentos.mapper.js";
@@ -131,7 +132,7 @@ export class LotesService {
 
   async listar(consulta: ListarLotesQuery) {
     const inicio = consulta.inicio ? lerData(consulta.inicio, "Data inicial") : undefined;
-    const fim = consulta.fim ? lerData(consulta.fim, "Data final") : undefined;
+    const fim = consulta.fim ? lerFimDoDia(consulta.fim, "Data final") : undefined;
 
     if (inicio && fim && inicio > fim) {
       throw new ErroDominio("A data inicial não pode ser posterior à data final.", 422);

@@ -5,6 +5,7 @@ import authPlugin from "./plugins/auth.js";
 import organizacoesRoutes from "./modules/organizacoes/organizacoes.routes.js";
 import equipamentosRoutes from "./modules/equipamentos/equipamentos.routes.js";
 import lotesRoutes from "./modules/lotes/lotes.routes.js";
+import relatoriosRoutes from "./modules/relatorios/relatorios.routes.js";
 
 export function buildApp() {
   const app = Fastify({ logger: true });
@@ -39,6 +40,8 @@ export function buildApp() {
 
   app.register(lotesRoutes, { prefix: "/api/v1/lotes" });
   app.register(equipamentosRoutes, { prefix: "/api/v1/equipamentos" });
+
+  app.register(relatoriosRoutes, { prefix: "/api/v1/relatorios" });
 
   return app;
 }
