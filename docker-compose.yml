@@ -1,7 +1,7 @@
 services:
   db:
     image: mysql:8.0
-    container_name: greencode-db
+    container_name: logistica_db
     environment:
       MYSQL_ROOT_PASSWORD: senha
       MYSQL_DATABASE: greencode

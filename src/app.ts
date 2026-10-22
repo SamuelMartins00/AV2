@@ -6,6 +6,8 @@ import organizacoesRoutes from "./modules/organizacoes/organizacoes.routes.js";
 import equipamentosRoutes from "./modules/equipamentos/equipamentos.routes.js";
 import lotesRoutes from "./modules/lotes/lotes.routes.js";
 import relatoriosRoutes from "./modules/relatorios/relatorios.routes.js";
+import configuracaoRoutes from "./modules/configuracao/configuracao.routes.js";
+import usuariosRoutes from "./modules/usuarios/usuarios.routes.js";
 
 export function buildApp() {
   const app = Fastify({ logger: true });
@@ -37,11 +39,11 @@ export function buildApp() {
   });
 
   app.register(organizacoesRoutes, { prefix: "/api/v1/organizacoes" });
-
   app.register(lotesRoutes, { prefix: "/api/v1/lotes" });
   app.register(equipamentosRoutes, { prefix: "/api/v1/equipamentos" });
-
   app.register(relatoriosRoutes, { prefix: "/api/v1/relatorios" });
+  app.register(configuracaoRoutes, { prefix: "/api/v1/configuracao" });
+  app.register(usuariosRoutes, { prefix: "/api/v1/usuarios" });
 
   return app;
 }
