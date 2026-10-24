@@ -1,7 +1,9 @@
+# MySQL 8 para desenvolvimento e para validar o sistema no Linux.
+# Uso: docker compose up -d   (e docker compose down para parar)
 services:
   db:
     image: mysql:8.0
-    container_name: logistica_db
+    container_name: logistica-db
     environment:
       MYSQL_ROOT_PASSWORD: senha
       MYSQL_DATABASE: greencode
@@ -9,5 +11,13 @@ services:
       - "3306:3306"
     volumes:
       - dbdata:/var/lib/mysql
+      # Cria também o banco exclusivo dos testes de integração
+      - ./docker/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-psenha"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   dbdata:
