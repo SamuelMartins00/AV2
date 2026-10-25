@@ -3,7 +3,10 @@ import type {
   AtualizarOrganizacaoBody,
   CriarOrganizacaoBody,
   DadosContratoBody,
+  EncerrarContratoBody,
+  EncerrarContratoRetroativoBody,
   ListarQuery,
+  ReativarOrganizacaoBody,
   ParamsId,
   RenovarContratoBody,
 } from "./organizacoes.schemas.js";
@@ -21,7 +24,7 @@ export class OrganizacoesController {
   };
 
   listar = async (request: FastifyRequest<{ Querystring: ListarQuery }>) => {
-    return this.service.listar(request.query.todas === true);
+    return this.service.listar(request.query);
   };
 
   buscar = async (request: FastifyRequest<{ Params: ParamsId }>) => {
@@ -40,6 +43,18 @@ export class OrganizacoesController {
       request.user.usuario,
     );
   };
+
+  reativar = async (
+    request: FastifyRequest<{ Params: ParamsId; Body: ReativarOrganizacaoBody }>,
+  ) => this.service.reativar(request.params.id, request.body.versao, request.user.usuario);
+
+  encerrarContrato = async (
+    request: FastifyRequest<{ Params: ParamsId; Body: EncerrarContratoBody }>,
+  ) => this.service.encerrarContrato(request.params.id, request.body, request.user.usuario);
+
+  encerrarContratoRetroativo = async (
+    request: FastifyRequest<{ Params: ParamsId; Body: EncerrarContratoRetroativoBody }>,
+  ) => this.service.encerrarContratoRetroativo(request.params.id, request.body, request.user.usuario);
 
   criarContrato = async (
     request: FastifyRequest<{ Params: ParamsId; Body: DadosContratoBody }>,

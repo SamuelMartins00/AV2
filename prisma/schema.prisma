@@ -56,6 +56,14 @@ enum StatusRastreamento {
   BAIXA_DEFINITIVA
 }
 
+enum EstadoOperacaoRenovacao {
+  PENDENTE
+  PROCESSANDO
+  AGUARDANDO_NOVA_TENTATIVA
+  CONCLUIDA
+  INTERVENCAO_MANUAL
+}
+
 // ---------- Autenticação ----------
 
 model Usuario {
@@ -112,7 +120,33 @@ model Contrato {
   clausulas           Json
   valorMensal         Decimal     @db.Decimal(12, 2)
   renovacaoAutomatica Boolean     @default(false)
-  versao              Int         @default(1)
+  duracaoRenovacaoMeses Int?
+  encerradoEm          DateTime?  @db.DateTime(3)
+  motivoEncerramento   String?    @db.Text
+  versao               Int        @default(1)
+  operacoesRenovacao   OperacaoRenovacaoAutomatica[]
+}
+
+model OperacaoRenovacaoAutomatica {
+  id                    Int                      @id @default(autoincrement())
+  contratoId            Int
+  contrato              Contrato                 @relation(fields: [contratoId], references: [id], onDelete: Restrict)
+  vencimentoOriginal    DateTime                 @db.DateTime(3)
+  estado                EstadoOperacaoRenovacao  @default(PENDENTE)
+  tentativas            Int                      @default(0)
+  tentativaIniciadaEm   DateTime?                @db.DateTime(3)
+  reivindicacaoExpiraEm DateTime?                @db.DateTime(3)
+  ultimaTentativaEm     DateTime?                @db.DateTime(3)
+  proximaTentativaEm    DateTime?                @db.DateTime(3)
+  concluidaEm           DateTime?                @db.DateTime(3)
+  ultimaFalhaResumo     String?                  @db.Text
+  criadoEm              DateTime                 @default(now()) @db.DateTime(3)
+  atualizadoEm          DateTime                 @updatedAt @db.DateTime(3)
+
+  @@unique([contratoId, vencimentoOriginal], map: "OperacaoRenovacaoAutomatica_contratoId_vencimentoOriginal_key")
+  @@index([estado, proximaTentativaEm], map: "OperacaoRenovacaoAutomatica_estado_proximaTentativaEm_idx")
+  @@index([estado, reivindicacaoExpiraEm], map: "OperacaoRenovacaoAutomatica_estado_reivindicacaoExpiraEm_idx")
+  @@index([contratoId], map: "OperacaoRenovacaoAutomatica_contratoId_idx")
 }
 
 model Lote {

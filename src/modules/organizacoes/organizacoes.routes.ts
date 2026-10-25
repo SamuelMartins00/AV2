@@ -5,12 +5,18 @@ import {
   buscarOrganizacaoSchema,
   criarContratoSchema,
   criarOrganizacaoSchema,
+  encerrarContratoSchema,
+  encerrarContratoRetroativoSchema,
   listarOrganizacoesSchema,
+  reativarOrganizacaoSchema,
   renovarContratoSchema,
   type AtualizarOrganizacaoBody,
   type CriarOrganizacaoBody,
   type DadosContratoBody,
+  type EncerrarContratoBody,
+  type EncerrarContratoRetroativoBody,
   type ListarQuery,
+  type ReativarOrganizacaoBody,
   type ParamsId,
   type RenovarContratoBody,
 } from "./organizacoes.schemas.js";
@@ -47,6 +53,24 @@ export default async function organizacoesRoutes(app: FastifyInstance) {
     "/:id",
     { schema: atualizarOrganizacaoSchema },
     controller.atualizar,
+  );
+
+  app.post<{ Params: ParamsId; Body: ReativarOrganizacaoBody }>(
+    "/:id/reativar",
+    { schema: reativarOrganizacaoSchema },
+    controller.reativar,
+  );
+
+  app.post<{ Params: ParamsId; Body: EncerrarContratoBody }>(
+    "/:id/contrato/encerrar",
+    { schema: encerrarContratoSchema },
+    controller.encerrarContrato,
+  );
+
+  app.post<{ Params: ParamsId; Body: EncerrarContratoRetroativoBody }>(
+    "/:id/contrato/encerrar-retroativo",
+    { onRequest: [app.exigirPapel("ADMINISTRADOR")], schema: encerrarContratoRetroativoSchema },
+    controller.encerrarContratoRetroativo,
   );
 
   app.post<{ Params: ParamsId; Body: DadosContratoBody }>(

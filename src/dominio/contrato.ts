@@ -43,3 +43,39 @@ export function contratoEstaVigente(
 ): boolean {
   return agora >= assinatura && agora <= vencimento;
 }
+
+/** Valida a duração contratual expressa em meses inteiros. */
+export function validarDuracaoRenovacaoMeses(meses: number): void {
+  if (!Number.isSafeInteger(meses) || meses <= 0) {
+    throw new ErroDominio("A duração da renovação deve ser um número inteiro positivo de meses.", 422);
+  }
+}
+
+/** Soma meses de calendário sem deixar o JavaScript transbordar para o mês seguinte.
+ * Ex.: 31 de janeiro + 1 mês resulta no último dia de fevereiro.
+ */
+export function adicionarMesesCalendario(dataBase: Date, meses: number): Date {
+  validarDuracaoRenovacaoMeses(meses);
+  const resultado = new Date(dataBase.getTime());
+  const diaOriginal = resultado.getUTCDate();
+  resultado.setUTCDate(1);
+  resultado.setUTCMonth(resultado.getUTCMonth() + meses);
+  const ultimoDia = new Date(Date.UTC(
+    resultado.getUTCFullYear(), resultado.getUTCMonth() + 1, 0,
+    resultado.getUTCHours(), resultado.getUTCMinutes(), resultado.getUTCSeconds(), resultado.getUTCMilliseconds(),
+  )).getUTCDate();
+  resultado.setUTCDate(Math.min(diaOriginal, ultimoDia));
+  return resultado;
+}
+
+export function contratoElegivelRenovacaoAutomatica(contrato: {
+  renovacaoAutomatica: boolean;
+  duracaoRenovacaoMeses: number | null;
+  encerradoEm: Date | null;
+}): boolean {
+  return contrato.renovacaoAutomatica
+    && contrato.encerradoEm === null
+    && contrato.duracaoRenovacaoMeses !== null
+    && Number.isSafeInteger(contrato.duracaoRenovacaoMeses)
+    && contrato.duracaoRenovacaoMeses > 0;
+}

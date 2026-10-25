@@ -22,9 +22,12 @@ const RESUMOS: Record<string, string> = {
   "GET /api/v1/auth/me": "Dados do usuário autenticado",
 
   "POST /api/v1/organizacoes": "Cadastra organização, com contrato opcional (administrador, operador)",
-  "GET /api/v1/organizacoes": "Lista organizações ativas; ?todas=true inclui inativas (administrador, operador)",
+  "GET /api/v1/organizacoes": "Lista organizações paginadas com filtros de razão social, CNPJ e status (administrador, operador)",
   "GET /api/v1/organizacoes/:id": "Consulta uma organização (administrador, operador)",
-  "PATCH /api/v1/organizacoes/:id": "Altera endereço ou desativa, com controle de versão (administrador, operador)",
+  "PATCH /api/v1/organizacoes/:id": "Altera CNPJ/endereço ou desativa, com controle de versão (administrador, operador)",
+  "POST /api/v1/organizacoes/:id/reativar": "Reativa organização com contrato vigente e controle de versão (administrador, operador)",
+  "POST /api/v1/organizacoes/:id/contrato/encerrar": "Encerra contrato e desabilita renovação automática (administrador, operador)",
+  "POST /api/v1/organizacoes/:id/contrato/encerrar-retroativo": "Corrige encerramento retroativo de contrato (somente administrador)",
   "POST /api/v1/organizacoes/:id/contrato": "Cria o contrato da organização (administrador, operador)",
   "POST /api/v1/organizacoes/:id/contrato/renovar": "Renova o contrato, com controle de versão (administrador, operador)",
 

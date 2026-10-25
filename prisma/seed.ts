@@ -65,6 +65,7 @@ const ORGANIZACOES = [
       clausulas: ["Coleta mensal programada", "Certificado de descarte", "Sigilo de dados"],
       valorMensal: 4500,
       renovacaoAutomatica: true,
+      duracaoRenovacaoMeses: 12,
     },
   },
   {

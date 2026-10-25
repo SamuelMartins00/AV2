@@ -121,6 +121,7 @@ describe("Jornada completa do greencode", () => {
         dataVencimento: dataISO(365),
         valorMensal: 1500.5,
         renovacaoAutomatica: true,
+        duracaoRenovacaoMeses: 12,
         clausulas: ["Coleta mensal", "Descarte certificado"],
       },
     });
@@ -138,6 +139,16 @@ describe("Jornada completa do greencode", () => {
     expect(invalido.status).toBe(400);
     const duplicado = await chamar("POST", "/organizacoes", "operador", { ...base, cnpj: "11222333000181" });
     expect(duplicado.status).toBe(409);
+  });
+
+  it("3.1 exige duração explícita ao habilitar renovação automática", async () => {
+    const r = await chamar("POST", "/organizacoes", "operador", {
+      razaoSocial: "Contrato sem duração",
+      cnpj: "98.765.432/0001-98",
+      enderecoCompleto: "Rua de teste",
+      contrato: { dataVencimento: dataISO(365), valorMensal: 100, renovacaoAutomatica: true },
+    });
+    expect(r.status).toBe(422);
   });
 
   it("4. o gestor registra um lote com equipamentos e códigos de barras automáticos", async () => {
@@ -331,6 +342,46 @@ describe("Jornada completa do greencode", () => {
     });
     expect(desatualizada.status).toBe(409);
   });
+
+  it("16. lista organizações com paginação e filtros", async () => {
+    const lista = await chamar("GET", "/organizacoes?page=1&limit=10", "operador");
+    expect(lista.status).toBe(200);
+    expect(lista.corpo).toMatchObject({ pagination: { page: 1, limit: 10 } });
+    expect(Array.isArray(lista.corpo.items)).toBe(true);
+
+    const porNome = await chamar("GET", "/organizacoes?razaoSocial=Banco&page=1&limit=20", "operador");
+    expect(porNome.corpo.items.some((o: any) => o.id === ctx.organizacaoId)).toBe(true);
+    const porCnpj = await chamar("GET", "/organizacoes?cnpj=11222333000181", "operador");
+    expect(porCnpj.corpo.items.some((o: any) => o.id === ctx.organizacaoId)).toBe(true);
+    expect((await chamar("GET", "/organizacoes?limit=101", "operador")).status).toBe(400);
+  });
+
+  it("17. atualiza CNPJ com normalização, unicidade e versão", async () => {
+    const outra = await chamar("POST", "/organizacoes", "operador", { razaoSocial: "Outra organização", cnpj: "98.765.432/0001-98", enderecoCompleto: "Rua C, 3" });
+    expect(outra.status).toBe(201);
+    const org = (await chamar("GET", `/organizacoes/${ctx.organizacaoId}`, "operador")).corpo;
+    const invalido = await chamar("PATCH", `/organizacoes/${ctx.organizacaoId}`, "operador", { versao: org.versao, cnpj: "11222333000182" });
+    expect(invalido.status).toBe(400);
+    const atualizado = await chamar("PATCH", `/organizacoes/${ctx.organizacaoId}`, "operador", { versao: org.versao, cnpj: "12.345.678/0001-95" });
+    expect(atualizado.status).toBe(200);
+    expect(atualizado.corpo.cnpj).toBe("12345678000195");
+    const atual = atualizado.corpo;
+    const duplicado = await chamar("PATCH", `/organizacoes/${ctx.organizacaoId}`, "operador", { versao: atual.versao, cnpj: "98.765.432/0001-98" });
+    expect(duplicado.status).toBe(409);
+    const revertido = await chamar("PATCH", `/organizacoes/${ctx.organizacaoId}`, "operador", { versao: atual.versao, cnpj: "11.222.333/0001-81" });
+    expect(revertido.status).toBe(200);
+  });
+
+  it("18. desativa e reativa sem perder contrato ou histórico", async () => {
+    const org = (await chamar("GET", `/organizacoes/${ctx.organizacaoId}`, "operador")).corpo;
+    const desativada = await chamar("PATCH", `/organizacoes/${ctx.organizacaoId}`, "operador", { versao: org.versao, desativar: true });
+    expect(desativada.status).toBe(200);
+    expect(desativada.corpo.ativo).toBe(false);
+    expect(desativada.corpo.contrato).not.toBeNull();
+    const reativada = await chamar("POST", `/organizacoes/${ctx.organizacaoId}/reativar`, "operador", { versao: desativada.corpo.versao });
+    expect(reativada.status).toBe(200);
+    expect(reativada.corpo.ativo).toBe(true);
+  });
 });
 
 describe("Concorrência (requisições simultâneas)", () => {
@@ -522,5 +573,81 @@ describe("Sessão e auditoria", () => {
       const registro = await prisma.usuario.findUniqueOrThrow({ where: { usuario: login } });
       if (registro.papel !== "ADMINISTRADOR") expect((await chamar("GET", "/auth/me", login)).status).toBe(401);
     }
+  });
+});
+
+describe("Encerramento de contratos", () => {
+  async function criarOrganizacaoComContrato(cnpj: string) {
+    return chamar("POST", "/organizacoes", "operador", {
+      razaoSocial: `Contrato ${cnpj}`,
+      cnpj,
+      enderecoCompleto: "Rua de teste, 1",
+      contrato: { dataAssinatura: dataISO(-30), dataVencimento: dataISO(365), valorMensal: 100, renovacaoAutomatica: true, duracaoRenovacaoMeses: 12 },
+    });
+  }
+
+  it("encerra contrato com motivo, audita e impede renovação posterior", async () => {
+    const criada = await criarOrganizacaoComContrato("55566677000183");
+    expect(criada.status).toBe(201);
+    const org = criada.corpo;
+    const encerrada = await chamar("POST", `/organizacoes/${org.id}/contrato/encerrar`, "operador", {
+      versao: org.contrato.versao,
+      motivo: "Encerramento solicitado pelo cliente",
+    });
+    expect(encerrada.status).toBe(200);
+    expect(encerrada.corpo.contrato.encerradoEm).not.toBeNull();
+    expect(encerrada.corpo.contrato.renovacaoAutomatica).toBe(false);
+    expect(await prisma.journalTransacao.count({ where: { entidade: "Contrato", operacao: "ENCERRAR_CONTRATO", usuarioResponsavel: "operador" } })).toBeGreaterThan(0);
+    const renovar = await chamar("POST", `/organizacoes/${org.id}/contrato/renovar`, "operador", {
+      versao: encerrada.corpo.contrato.versao,
+      novoVencimento: dataISO(500),
+    });
+    expect(renovar.status).toBe(409);
+  });
+
+  it("não permite reativação com contrato vencido", async () => {
+    const criada = await chamar("POST", "/organizacoes", "operador", {
+      razaoSocial: "Contrato vencido para reativação",
+      cnpj: "31415926000171",
+      enderecoCompleto: "Rua de teste, 2",
+      contrato: { dataAssinatura: dataISO(-365), dataVencimento: dataISO(-1), valorMensal: 100 },
+    });
+    expect(criada.status).toBe(201);
+    const desativada = await chamar("PATCH", `/organizacoes/${criada.corpo.id}`, "operador", { versao: criada.corpo.versao, desativar: true });
+    expect(desativada.status).toBe(200);
+    const reativacao = await chamar("POST", `/organizacoes/${criada.corpo.id}/reativar`, "operador", { versao: desativada.corpo.versao });
+    expect(reativacao.status).toBe(422);
+  });
+
+  it("não permite reativação de organização cujo contrato foi encerrado", async () => {
+    const criada = await chamar("POST", "/organizacoes", "operador", {
+      razaoSocial: "Contrato encerrado para reativação",
+      cnpj: "27182818000129",
+      enderecoCompleto: "Rua de teste, 3",
+      contrato: { dataAssinatura: dataISO(-30), dataVencimento: dataISO(365), valorMensal: 100 },
+    });
+    expect(criada.status).toBe(201);
+    const desativada = await chamar("PATCH", `/organizacoes/${criada.corpo.id}`, "operador", { versao: criada.corpo.versao, desativar: true });
+    expect(desativada.status).toBe(200);
+    const encerrada = await chamar("POST", `/organizacoes/${criada.corpo.id}/contrato/encerrar`, "operador", { versao: criada.corpo.contrato.versao, motivo: "Encerramento antes da reativação" });
+    expect(encerrada.status).toBe(200);
+    const reativacao = await chamar("POST", `/organizacoes/${criada.corpo.id}/reativar`, "operador", { versao: desativada.corpo.versao });
+    expect(reativacao.status).toBe(422);
+  });
+
+  it("restringe encerramento retroativo a ADMINISTRADOR", async () => {
+    const criada = await criarOrganizacaoComContrato("12345678000195");
+    expect(criada.status).toBe(201);
+    const org = criada.corpo;
+    const corpo = {
+      versao: org.contrato.versao,
+      motivo: "Correção de registro após conferência documental",
+      dataEncerramento: dataISO(-10),
+    };
+    const negada = await chamar("POST", `/organizacoes/${org.id}/contrato/encerrar-retroativo`, "operador", corpo);
+    expect(negada.status).toBe(403);
+    const aceita = await chamar("POST", `/organizacoes/${org.id}/contrato/encerrar-retroativo`, "admin", corpo);
+    expect(aceita.status).toBe(200);
+    expect(aceita.corpo.contrato.encerradoEm).not.toBeNull();
   });
 });
