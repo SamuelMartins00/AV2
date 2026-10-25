@@ -204,7 +204,7 @@ async function criarUsuariosEConfiguracao() {
     await prisma.usuario.upsert({
       where: { usuario: u.usuario },
       update: {},
-      create: { usuario: u.usuario, hashSenha, papel: u.papel },
+      create: { usuario: u.usuario, nomeExibicao: u.usuario, hashSenha, papel: u.papel },
     });
   }
 

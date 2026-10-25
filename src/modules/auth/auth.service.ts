@@ -9,6 +9,7 @@ type AssinarToken = (payload: {
   sub: string;
   usuario: string;
   papel: Papel;
+  versaoSeguranca: number;
 }) => string;
 
 export interface ParTokens {
@@ -37,9 +38,10 @@ export class AuthService {
     usuario: string,
     papel: Papel,
     refreshToken: string,
+    versaoSeguranca: number,
   ): ParTokens {
     return {
-      accessToken: this.assinar({ sub: String(usuarioId), usuario, papel }),
+      accessToken: this.assinar({ sub: String(usuarioId), usuario, papel, versaoSeguranca }),
       refreshToken,
       tipo: "Bearer",
     };
@@ -52,19 +54,17 @@ export class AuthService {
       registro?.hashSenha ?? HASH_FALSO,
     );
 
-    if (!registro || !senhaConfere) {
+    if (!registro || !senhaConfere || !registro.ativo) {
       throw new ErroDominio("Usuário ou senha inválidos", 401);
     }
 
     const refreshToken = gerarRefreshToken();
-    await authRepository.criarRefreshToken(
-      registro.id,
-      hashDoToken(refreshToken),
-      expiracaoDoRefresh(),
+    const criouSessao = await authRepository.criarSessaoSeAtivo(
+      registro.id, registro.versaoSeguranca, hashDoToken(refreshToken), expiracaoDoRefresh(),
     );
-    await authRepository.atualizarUltimoAcesso(registro.id);
+    if (!criouSessao) throw new ErroDominio("Usuário ou senha inválidos", 401);
 
-    return this.montarPar(registro.id, registro.usuario, registro.papel, refreshToken);
+    return this.montarPar(registro.id, registro.usuario, registro.papel, refreshToken, registro.versaoSeguranca);
   }
 
   async renovar(refreshToken: string): Promise<ParTokens> {
@@ -86,16 +86,14 @@ export class AuthService {
       );
     }
 
-    if (registro.expiraEm <= new Date()) {
-      throw new ErroDominio("Sessão expirada por inatividade", 401);
+    if (registro.expiraEm <= new Date() || !registro.usuario.ativo || registro.usuario.senhaAlteracaoObrigatoria) {
+      throw new ErroDominio("Sessão expirada ou usuário sem permissão para renovar", 401);
     }
 
     const novoToken = gerarRefreshToken();
     const rotacionou = await authRepository.rotacionarRefreshToken(
-      registro.id,
-      registro.usuarioId,
-      hashDoToken(novoToken),
-      expiracaoDoRefresh(),
+      registro.id, registro.usuarioId, registro.usuario.versaoSeguranca,
+      hashDoToken(novoToken), expiracaoDoRefresh(),
     );
 
     if (!rotacionou) {
@@ -107,6 +105,7 @@ export class AuthService {
       registro.usuario.usuario,
       registro.usuario.papel,
       novoToken,
+      registro.usuario.versaoSeguranca,
     );
   }
 
@@ -129,7 +128,8 @@ export class AuthService {
     }
 
     const hashSenha = await bcrypt.hash(senhaNova, env.bcryptCusto);
-    await authRepository.atualizarSenhaERevogarTokens(registro.id, hashSenha);
+    const atualizada = await authRepository.atualizarSenhaERevogarTokens(registro.id, hashSenha);
+    if (!atualizada) throw new ErroDominio("Conta inativa ou indisponível", 401);
   }
 
   async perfil(usuarioId: number) {
@@ -140,7 +140,9 @@ export class AuthService {
     return {
       id: registro.id,
       usuario: registro.usuario,
+      nomeExibicao: registro.nomeExibicao,
       papel: registro.papel,
+      ativo: registro.ativo,
       ultimoAcesso: registro.ultimoAcesso,
     };
   }

@@ -60,12 +60,18 @@ enum StatusRastreamento {
 
 model Usuario {
   id            Int            @id @default(autoincrement())
-  usuario       String         @unique
-  hashSenha     String
-  papel         PapelUsuario
-  ultimoAcesso  DateTime?
-  criadoEm      DateTime       @default(now())
-  refreshTokens RefreshToken[]
+  usuario                    String         @unique
+  nomeExibicao               String
+  hashSenha                  String
+  papel                      PapelUsuario
+  ativo                      Boolean        @default(true)
+  senhaAlteracaoObrigatoria  Boolean        @default(false)
+  versaoSeguranca            Int            @default(1)
+  ultimoAcesso               DateTime?
+  criadoEm                   DateTime       @default(now())
+  refreshTokens              RefreshToken[]
+
+  @@index([ativo, papel])
 }
 
 model RefreshToken {

@@ -23,18 +23,13 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/server.js",
     "typecheck": "tsc",
+    "start": "node dist/server.js",
     "test": "vitest run",
-    "test:integracao": "vitest run --config vitest.integracao.config.ts",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
-    "db:seed": "tsx prisma/seed.ts",
-    "db:reset": "prisma migrate reset --force && tsx prisma/seed.ts",
-    "db:test:preparar": "tsx scripts/preparar-banco-teste.ts"
+    "db:seed": "tsx prisma/seed.ts"
   },
-  
   "dependencies": {
     "@fastify/jwt": "^10.2.5",
     "@fastify/swagger": "^9.9.2",

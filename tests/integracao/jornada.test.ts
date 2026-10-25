@@ -33,7 +33,7 @@ const dataISO = (dias: number) =>
   new Date(Date.now() + dias * 86_400_000).toISOString().slice(0, 10);
 
 async function chamar(
-  metodo: "GET" | "POST" | "PATCH",
+  metodo: "GET" | "POST" | "PATCH" | "PUT",
   url: string,
   quem?: string,
   corpo?: unknown,
@@ -74,10 +74,10 @@ beforeAll(async () => {
   const hash = (s: string) => bcrypt.hash(s, 4);
   await prisma.usuario.createMany({
     data: [
-      { usuario: "admin", hashSenha: await hash(SENHAS.admin), papel: "ADMINISTRADOR" },
-      { usuario: "operador", hashSenha: await hash(SENHAS.operador), papel: "OPERADOR_CADASTRO" },
-      { usuario: "gestor", hashSenha: await hash(SENHAS.gestor), papel: "GESTOR_ALMOXARIFADO" },
-      { usuario: "auditor", hashSenha: await hash(SENHAS.auditor), papel: "AUDITOR" },
+      { usuario: "admin", nomeExibicao: "Administrador", hashSenha: await hash(SENHAS.admin), papel: "ADMINISTRADOR" },
+      { usuario: "operador", nomeExibicao: "Operador", hashSenha: await hash(SENHAS.operador), papel: "OPERADOR_CADASTRO" },
+      { usuario: "gestor", nomeExibicao: "Gestor", hashSenha: await hash(SENHAS.gestor), papel: "GESTOR_ALMOXARIFADO" },
+      { usuario: "auditor", nomeExibicao: "Auditor", hashSenha: await hash(SENHAS.auditor), papel: "AUDITOR" },
     ],
   });
   await prisma.configuracaoGlobal.create({ data: { id: 1 } });
@@ -415,18 +415,66 @@ describe("Sessão e auditoria", () => {
   });
 
   it("o administrador cria um usuário e o hash da senha nunca vai ao journal", async () => {
-    const criado = await chamar("POST", "/usuarios", "admin", { usuario: "ana.silva", senha: "Senha@1234", papel: "AUDITOR" });
+    const criado = await chamar("POST", "/usuarios", "admin", { usuario: "ana.silva", nomeExibicao: "Ana Silva", senha: "Senha@1234", papel: "AUDITOR" });
     expect(criado.status).toBe(201);
     expect(criado.corpo).not.toHaveProperty("hashSenha");
-    expect((await chamar("POST", "/usuarios", "admin", { usuario: "ana.silva", senha: "Senha@1234", papel: "AUDITOR" })).status).toBe(409);
+    expect((await chamar("POST", "/usuarios", "admin", { usuario: "ana.silva", nomeExibicao: "Ana Silva", senha: "Senha@1234", papel: "AUDITOR" })).status).toBe(409);
 
     const lista = await chamar("GET", "/usuarios", "admin");
-    expect(lista.corpo.map((u: any) => u.usuario)).toContain("ana.silva");
+    expect(lista.corpo.items.map((u: any) => u.usuario)).toContain("ana.silva");
+    expect(lista.corpo.items.find((u: any) => u.usuario === "ana.silva").nomeExibicao).toBe("Ana Silva");
+    expect((await chamar("GET", "/usuarios?limit=101", "admin")).status).toBe(400);
     expect(JSON.stringify(lista.corpo)).not.toContain("hashSenha");
 
     const todos = await prisma.journalTransacao.findMany();
     expect(JSON.stringify(todos)).not.toContain("hashSenha");
     expect(JSON.stringify(todos)).not.toContain("$2");
+  });
+
+  it("autoatendimento atualiza o nome e rejeita campos não permitidos", async () => {
+    const atualizado = await chamar("PATCH", "/usuarios/me", "admin", { nomeExibicao: "Administrador Green" });
+    expect(atualizado.status).toBe(200);
+    expect(atualizado.corpo.nomeExibicao).toBe("Administrador Green");
+    expect((await chamar("PATCH", "/usuarios/me", "admin", { nomeExibicao: "x", papel: "AUDITOR" })).status).toBe(400);
+  });
+
+  it("promoção exige senha atual e não permite rebaixar outro administrador", async () => {
+    expect((await chamar("POST", "/usuarios", "admin", { usuario: "admin.novo", nomeExibicao: "Admin Novo", senha: "Senha@1234", papel: "ADMINISTRADOR" })).status).toBe(422);
+    const ana = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "ana.silva" } });
+    expect((await chamar("PATCH", `/usuarios/${ana.id}`, "admin", { papel: "ADMINISTRADOR", senhaAtualAdmin: "errada" })).status).toBe(422);
+    expect((await chamar("PATCH", `/usuarios/${ana.id}`, "admin", { papel: "ADMINISTRADOR", senhaAtualAdmin: SENHAS.admin })).status).toBe(200);
+    const atualizado = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "ana.silva" } });
+    expect(atualizado.papel).toBe("ADMINISTRADOR");
+    expect((await chamar("PATCH", `/usuarios/${atualizado.id}`, "admin", { papel: "AUDITOR" })).status).toBe(403);
+    expect((await chamar("PATCH", `/usuarios/${atualizado.id}/desativar`, "admin")).status).toBe(403);
+  });
+
+  it("desativação invalida access e refresh tokens; reativação exige novo login", async () => {
+    const criado = await chamar("POST", "/usuarios", "admin", { usuario: "conta.inativa", nomeExibicao: "Conta Inativa", senha: "Senha@1234", papel: "AUDITOR" });
+    expect(criado.status).toBe(201);
+    const login = await chamar("POST", "/auth/login", undefined, { usuario: "conta.inativa", senha: "Senha@1234" });
+    expect(login.status).toBe(200);
+    token["conta.inativa"] = login.corpo.accessToken;
+    const conta = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "conta.inativa" } });
+    expect((await chamar("PATCH", `/usuarios/${conta.id}/desativar`, "admin")).status).toBe(200);
+    expect((await chamar("GET", "/auth/me", "conta.inativa")).status).toBe(401);
+    expect((await chamar("POST", "/auth/refresh", undefined, { refreshToken: login.corpo.refreshToken })).status).toBe(401);
+    expect((await chamar("PATCH", `/usuarios/${conta.id}/reativar`, "admin")).status).toBe(200);
+    expect((await chamar("GET", "/auth/me", "conta.inativa")).status).toBe(401);
+    const novoLogin = await chamar("POST", "/auth/login", undefined, { usuario: "conta.inativa", senha: "Senha@1234" });
+    expect(novoLogin.status).toBe(200);
+  });
+
+  it("redefinição administrativa exige troca de senha e invalida tokens anteriores", async () => {
+    const conta = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "conta.inativa" } });
+    expect((await chamar("PUT", `/usuarios/${conta.id}/senha`, "admin", { senhaNova: "Temporaria@123" })).status).toBe(204);
+    const login = await chamar("POST", "/auth/login", undefined, { usuario: "conta.inativa", senha: "Temporaria@123" });
+    expect(login.status).toBe(200);
+    token["conta.inativa"] = login.corpo.accessToken;
+    expect((await chamar("GET", "/auth/me", "conta.inativa")).status).toBe(403);
+    expect((await chamar("POST", "/auth/alterar-senha", "conta.inativa", { senhaAtual: "Temporaria@123", senhaNova: "Definitiva@123" })).status).toBe(204);
+    expect((await chamar("GET", "/auth/me", "conta.inativa")).status).toBe(401);
+    expect((await chamar("POST", "/auth/login", undefined, { usuario: "conta.inativa", senha: "Definitiva@123" })).status).toBe(200);
   });
 
   it("o journal registrou as operações da jornada com o usuário responsável", async () => {
@@ -448,5 +496,31 @@ describe("Sessão e auditoria", () => {
     expect(triagem.usuarioResponsavel).toBe("gestor");
     expect(triagem.dadosAntes).not.toBeNull();
     expect(triagem.dadosDepois).not.toBeNull();
+  });
+
+  it("serializa auto-rebaixamentos concorrentes e preserva um administrador ativo", async () => {
+    const loginAna = await chamar("POST", "/auth/login", undefined, { usuario: "ana.silva", senha: "Senha@1234" });
+    expect(loginAna.status).toBe(200);
+    token["ana.silva"] = loginAna.corpo.accessToken;
+    const admin = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "admin" } });
+    const ana = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "ana.silva" } });
+
+    const resultados = await Promise.all([
+      chamar("PATCH", `/usuarios/${admin.id}`, "admin", { papel: "AUDITOR" }),
+      chamar("PATCH", `/usuarios/${ana.id}`, "ana.silva", { papel: "AUDITOR" }),
+    ]);
+    expect(resultados.map((r) => r.status).sort()).toEqual([200, 409]);
+    expect(await prisma.usuario.count({ where: { ativo: true, papel: "ADMINISTRADOR" } })).toBe(1);
+
+    const restante = await prisma.usuario.findFirstOrThrow({ where: { ativo: true, papel: "ADMINISTRADOR" } });
+    const tokenRestante = restante.usuario === "ana.silva" ? "ana.silva" : "admin";
+    const ultimo = await chamar("PATCH", `/usuarios/${restante.id}`, tokenRestante, { papel: "AUDITOR" });
+    expect(ultimo.status).toBe(409);
+    expect((await chamar("PATCH", `/usuarios/${restante.id}/desativar`, tokenRestante)).status).toBe(409);
+    expect(await prisma.usuario.count({ where: { ativo: true, papel: "ADMINISTRADOR" } })).toBe(1);
+    for (const login of ["admin", "ana.silva"]) {
+      const registro = await prisma.usuario.findUniqueOrThrow({ where: { usuario: login } });
+      if (registro.papel !== "ADMINISTRADOR") expect((await chamar("GET", "/auth/me", login)).status).toBe(401);
+    }
   });
 });
