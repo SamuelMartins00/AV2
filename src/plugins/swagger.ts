@@ -4,6 +4,7 @@ import fp from "fastify-plugin";
 
 const TAGS: Record<string, string> = {
   auth: "Autenticação",
+  auditoria: "Auditoria",
   organizacoes: "Organizações e contratos",
   lotes: "Lotes",
   equipamentos: "Equipamentos",
@@ -20,6 +21,8 @@ const RESUMOS: Record<string, string> = {
   "POST /api/v1/auth/logout": "Revoga o refresh token (encerra a sessão)",
   "POST /api/v1/auth/alterar-senha": "Altera a própria senha (revoga as sessões)",
   "GET /api/v1/auth/me": "Dados do usuário autenticado",
+
+  "GET /api/v1/auditoria/journal": "Consulta paginada e somente de leitura do journal (administrador, auditor)",
 
   "POST /api/v1/organizacoes": "Cadastra organização, com contrato opcional (administrador, operador)",
   "GET /api/v1/organizacoes": "Lista organizações paginadas com filtros de razão social, CNPJ e status (administrador, operador)",
@@ -42,6 +45,8 @@ const RESUMOS: Record<string, string> = {
   "PATCH /api/v1/equipamentos/:id/estado-fisico": "Altera o estado físico, com controle de versão (administrador, gestor)",
   "PATCH /api/v1/equipamentos/:id/status": "Altera o status de rastreamento, com controle de versão (administrador, gestor)",
   "POST /api/v1/equipamentos/:id/movimentacoes": "Registra movimentação do equipamento (administrador, gestor)",
+  "POST /api/v1/equipamentos/:id/triagem": "Registra a avaliação individual de triagem, com justificativa e controle de versão (administrador, gestor)",
+  "POST /api/v1/equipamentos/:id/baixa-definitiva": "Registra a baixa definitiva autorizada, com justificativa, controle de versão e auditoria (somente administrador)",
 
   "GET /api/v1/relatorios/organizacao/:id": "Relatório por organização e período (administrador, auditor)",
   "GET /api/v1/relatorios/status": "Relatório de equipamentos por status (administrador, auditor)",
@@ -69,7 +74,7 @@ export default fp(async (app) => {
     openapi: {
       openapi: "3.0.3",
       info: {
-        title: "greencode API",
+        title: "Logística API",
         description:
           "Logística reversa de equipamentos eletrônicos. Faça login em POST /api/v1/auth/login, copie o accessToken e use o botão Authorize.",
         version: "1.0.0",

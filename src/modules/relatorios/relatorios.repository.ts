@@ -41,10 +41,18 @@ export const relatoriosRepository = {
     });
   },
 
-  // Contrato que se sobrepõe ao período: assinado até o fim e vencendo depois do início
+  // Contrato vigente em algum instante do período solicitado. O encerramento
+  // antecipado limita a vigência efetiva, sem alterar o vencimento contratual
   listarContratosNoPeriodo(inicio: Date, fim: Date) {
     return prisma.contrato.findMany({
-      where: { dataAssinatura: { lte: fim }, dataVencimento: { gte: inicio } },
+      where: {
+        dataAssinatura: { lte: fim },
+        dataVencimento: { gte: inicio },
+        OR: [
+          { encerradoEm: null },
+          { encerradoEm: { gte: inicio } },
+        ],
+      },
       include: { organizacao: { select: { razaoSocial: true, cnpj: true } } },
       orderBy: { organizacaoId: "asc" },
     });

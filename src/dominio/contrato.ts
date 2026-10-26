@@ -1,7 +1,50 @@
 import { ErroDominio } from "./erros.js";
 
+const DATA_ISO_COM_COMPONENTES = /^(\d{4})-(\d{2})-(\d{2})(?:[Tt ](.*))?$/;
+const HORARIO_ISO = /^(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(?:([zZ])|([+-])(\d{2}):?(\d{2}))?$/;
+
+function dataCalendarioValida(ano: number, mes: number, dia: number): boolean {
+  if (mes < 1 || mes > 12 || dia < 1) return false;
+  const bissexto = ano % 4 === 0 && (ano % 100 !== 0 || ano % 400 === 0);
+  const diasPorMes = [31, bissexto ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return dia <= (diasPorMes[mes - 1] ?? 0);
+}
+
+function componentesIsoValidos(valor: string): boolean {
+  const partes = DATA_ISO_COM_COMPONENTES.exec(valor);
+  if (!partes) return true; // Mantém os demais formatos que Date já aceitava.
+
+  const ano = Number(partes[1]);
+  const mes = Number(partes[2]);
+  const dia = Number(partes[3]);
+  if (!dataCalendarioValida(ano, mes, dia)) return false;
+
+  const horario = partes[4];
+  if (horario === undefined) return true;
+  const componentes = HORARIO_ISO.exec(horario);
+  if (!componentes) return false;
+
+  const hora = Number(componentes[1]);
+  const minuto = Number(componentes[2]);
+  const segundo = componentes[3] === undefined ? 0 : Number(componentes[3]);
+  if (hora > 23 || minuto > 59 || segundo > 59) return false;
+
+  // Offset explícito precisa estar dentro dos limites sintáticos de ISO 8601.
+  if (componentes[6] !== undefined) {
+    const horaOffset = Number(componentes[7]);
+    const minutoOffset = Number(componentes[8]);
+    if (horaOffset > 23 || minutoOffset > 59) return false;
+  }
+  return true;
+}
+
 export function lerData(valor: string, campo: string): Date {
-  const data = new Date(valor);
+  const texto = valor.trim();
+  if (!texto || !componentesIsoValidos(texto)) {
+    throw new ErroDominio(`${campo} inválida.`, 400);
+  }
+
+  const data = new Date(texto);
   if (Number.isNaN(data.getTime())) {
     throw new ErroDominio(`${campo} inválida.`, 400);
   }

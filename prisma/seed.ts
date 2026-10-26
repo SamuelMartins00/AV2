@@ -7,6 +7,7 @@ import type {
   TipoEquipamento,
 } from "../src/dominio/enums.js";
 import { gerarCodigoBarras } from "../src/dominio/equipamento.js";
+import { registrarJournal } from "../src/modules/auditoria/journal.js";
 
 type StatusLote =
   | "RECEBIDO"
@@ -23,7 +24,7 @@ interface EquipamentoSeed {
   estado: EstadoFisico;
   peso: number;
   status: StatusRastreamento;
-  /** Destinos sucessivos; a origem da 1ª movimentação é "Entrada". */
+  /** Destinos demonstrativos sucessivos; a origem da 1ª movimentação é "Entrada". */
   movimentacoes?: string[];
 }
 
@@ -219,7 +220,6 @@ async function criarUsuariosEConfiguracao() {
 async function criarDadosDemonstrativos() {
   if ((await prisma.organizacao.count()) > 0) {
     console.log("Já existem organizações: dados demonstrativos não foram criados.");
-    console.log("Para recomeçar do zero, rode: npm run db:reset");
     return;
   }
 
@@ -267,6 +267,20 @@ async function criarDadosDemonstrativos() {
           const sequencia = (sequencias.get(eq.tipo) ?? 0) + 1;
           sequencias.set(eq.tipo, sequencia);
 
+          const resultadoTriagem =
+            eq.status === "AGUARDANDO_TRIAGEM" || eq.status === "EM_TRIAGEM"
+              ? "AGUARDANDO_AVALIACAO"
+              : eq.status === "PECAS_REAPROVEITADAS"
+                ? "DESTINADO_AO_REAPROVEITAMENTO_DE_PECAS"
+                : eq.status === "MATERIAL_RECICLAVEL"
+                  ? "DESTINADO_A_RECICLAGEM"
+                  : eq.status === "DESCARTE_SEGURO"
+                    ? "DESTINADO_AO_DESCARTE_SEGURO"
+                    : "APROVADO_PARA_DESMONTAGEM";
+          const avaliado = resultadoTriagem !== "AGUARDANDO_AVALIACAO";
+          const triagemEm = avaliado ? new Date(dataEntrada.getTime() + 3_600_000) : null;
+          const justificativaDemonstrativa = "Registro fictício criado pelo seed para demonstrar o fluxo; não representa evento real.";
+
           const equipamento = await tx.equipamento.create({
             data: {
               loteId: criado.id,
@@ -278,8 +292,17 @@ async function criarDadosDemonstrativos() {
               anoFabricacao: eq.ano,
               estadoFisico: eq.estado,
               statusRastreamento: eq.status,
-              // Não inferir aprovação de triagem a partir de um status operacional histórico.
-              resultadoTriagem: eq.status === "AGUARDANDO_TRIAGEM" ? "AGUARDANDO_AVALIACAO" : null,
+              resultadoTriagem,
+              triagemResponsavel: avaliado ? "seed-demo" : null,
+              triagemEm,
+              triagemJustificativa: avaliado ? justificativaDemonstrativa : null,
+              ...(eq.status === "BAIXA_DEFINITIVA"
+                ? {
+                    baixadoEm: new Date(dataEntrada.getTime() + Math.max(1, (eq.movimentacoes?.length ?? 0)) * 3_600_000),
+                    baixaResponsavel: "seed-demo",
+                    baixaJustificativa: justificativaDemonstrativa,
+                  }
+                : {}),
               pesoQuilogramas: eq.peso,
             },
           });
@@ -287,17 +310,34 @@ async function criarDadosDemonstrativos() {
           let origem = "Entrada";
           let momento = dataEntrada.getTime();
           for (const destino of eq.movimentacoes ?? []) {
-            momento += 3_600_000; // uma hora entre movimentações
+            momento += 3_600_000; // uma hora entre movimentações demonstrativas
             await tx.movimentacao.create({
               data: {
                 equipamentoId: equipamento.id,
                 dataHora: new Date(momento),
                 origem,
                 destino,
-                responsavel: "gestor",
+                responsavel: "seed-demo",
+                observacao: "Movimentação fictícia criada pelo seed para demonstração.",
               },
             });
             origem = destino;
+          }
+
+          if (eq.status === "BAIXA_DEFINITIVA") {
+            await registrarJournal(tx, {
+              operacao: "BAIXA_DEFINITIVA_EQUIPAMENTO_DEMONSTRATIVA",
+              entidade: "Equipamento",
+              usuario: "seed-demo",
+              dadosAntes: { id: equipamento.id, statusRastreamento: "PECAS_REAPROVEITADAS", demonstrativo: true },
+              dadosDepois: {
+                id: equipamento.id,
+                statusRastreamento: "BAIXA_DEFINITIVA",
+                baixadoEm: new Date(dataEntrada.getTime() + Math.max(1, (eq.movimentacoes?.length ?? 0)) * 3_600_000).toISOString(),
+                baixaResponsavel: "seed-demo",
+                baixaJustificativa: justificativaDemonstrativa,
+              },
+            });
           }
         }
       }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ErroDominio } from "../src/dominio/erros.js";
+import { lerData } from "../src/dominio/contrato.js";
 import { lerFimDoDia, lerPeriodo } from "../src/dominio/periodo.js";
 
 describe("período dos relatórios", () => {
@@ -30,6 +31,23 @@ describe("período dos relatórios", () => {
       );
       expect((erro as ErroDominio).statusCode).toBe(400);
     }
+  });
+
+  it("rejeita datas de calendário impossíveis", () => {
+    expect(() => lerData("2026-02-31", "Data")).toThrowError("Data inválida.");
+    expect(() => lerData("2025-02-29", "Data")).toThrowError("Data inválida.");
+    expect(() => lerPeriodo("2026-02-31", "2026-03-31")).toThrowError("Data inicial do período inválida.");
+  });
+
+  it("aceita 29 de fevereiro somente em ano bissexto", () => {
+    expect(lerData("2024-02-29", "Data").toISOString()).toBe("2024-02-29T00:00:00.000Z");
+    expect(() => lerData("2023-02-29", "Data")).toThrowError("Data inválida.");
+  });
+
+  it("rejeita horários ISO impossíveis e preserva o fuso explícito", () => {
+    expect(() => lerData("2026-10-31T25:00:00Z", "Data")).toThrowError("Data inválida.");
+    expect(() => lerData("2026-10-31T10:61:00Z", "Data")).toThrowError("Data inválida.");
+    expect(lerData("2026-10-31T10:00:00+03:00", "Data").toISOString()).toBe("2026-10-31T07:00:00.000Z");
   });
 
   it("rejeita período invertido com status 422", () => {

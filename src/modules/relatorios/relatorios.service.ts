@@ -9,7 +9,7 @@ import { relatoriosRepository as repo } from "./relatorios.repository.js";
 import type { PeriodoQuery, StatusQuery } from "./relatorios.schemas.js";
 
 const OBSERVACAO_FINANCEIRA =
-  "Este relatório apresenta valores contratuais mensais. A atividade não define uma regra de reconhecimento de receita.";
+  "Este relatório apresenta valores contratuais mensais de contratos que estiveram vigentes em algum momento do período. Não representa receita recebida ou reconhecida.";
 
 function contagemZerada(): Record<StatusRastreamento, number> {
   return Object.fromEntries(

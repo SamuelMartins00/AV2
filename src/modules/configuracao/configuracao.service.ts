@@ -3,7 +3,7 @@ import { validarParametros } from "../../dominio/parametros.js";
 import { configuracaoRepository as repo } from "./configuracao.repository.js";
 import type { AtualizarConfiguracaoBody } from "./configuracao.schemas.js";
 
-type Configuracao = Awaited<ReturnType<typeof repo.obter>>;
+type Configuracao = NonNullable<Awaited<ReturnType<typeof repo.obter>>>;
 
 function paraResposta(config: Configuracao) {
   const aliquota = config.aliquotaImpostos.toNumber();
@@ -17,7 +17,11 @@ function paraResposta(config: Configuracao) {
 
 export class ConfiguracaoService {
   async obter() {
-    return paraResposta(await repo.obter());
+    const config = await repo.obter();
+    if (!config) {
+      throw new ErroDominio("Os parâmetros globais não foram configurados.", 422);
+    }
+    return paraResposta(config);
   }
 
   async atualizar(corpo: AtualizarConfiguracaoBody, usuario: string) {

@@ -1,5 +1,7 @@
 # AV2 – greencode: Entendendo a Atividade
- 
+
+> **Estado do código (26/10/2026):** este documento reúne a justificativa arquitetural e o contexto da atividade, incluindo trechos de planejamento histórico. Quando uma tabela de rotas ou um plano abaixo divergir do código atual, consulte `README.md`, `docs/DECISOES.md` e os módulos em `src/`. O registro atual de decisões adotadas está em `docs/DECISOES.md`.
+
 As justificativas completas estão em `DECISOES.md`
 
 ## 1. Visão geral
@@ -25,7 +27,7 @@ O domínio e as regras de negócio permanecem; mudam a interface, a persistênci
 | --- | --- | --- | --- |
 | Interface | `CLIInterface` com readline, menu por papel | API REST HTTP (Fastify) | Substituir a CLI por controllers e rotas; a checagem `podeExecutar(modulo, acao)` vira guard de autorização por papel (hook do Fastify) |
 | Persistência | Arquivos de texto com AES-256, escrita atômica via arquivo temporário | MySQL via Prisma ORM | `RepositorioArquivo` e `CriptografiaArquivo` são substituídos por repositórios Prisma |
-| Auditoria | Journal em arquivo (rotação 10 MB, retenção 180 dias) | Tabela `JournalTransacao` no banco | `JournalTransacao` vira modelo Prisma, gravado na mesma transação da operação |
+| Auditoria | Journal em arquivo (rotação 10 MB, retenção 180 dias) | Tabela `JournalTransacao` no banco | Operações de domínio compartilham transação com o journal; eventos de autenticação são best-effort e independentes da transação de sessão |
 | Autenticação | Sessões em memória, expiração em 30 min, SHA-256 | JWT de acesso curto + refresh token, senha com bcryptjs | `ServicoAutenticacao` + `Sessao` viram login, renovação, logout e hook de validação do token |
 | Concorrência | Atomicidade por arquivo | `$transaction` + versionamento otimista | Identificar operações multi-passo e proteger com transação |
 | Validações | Em código (CNPJ, datas, estados) | Em código e no banco (unique, constraints) | Manter os validadores e adicionar restrições no schema |
@@ -280,14 +282,14 @@ A AV2 não lista regras novas de domínio: ela pede que as regras da AV1 sejam "
 | Organização tem 0 ou 1 contrato; `estaVigente()` consulta vencimento | UML | `UNIQUE` em `Contrato.organizacaoId`; método no service | 409 |
 | Papéis restringem ações; auditor só consulta | AV1 | Guard por rota (seção 6) | 403 |
 | Toda movimentação registra destino, responsável e data | UML | `Movimentacao` criada junto com a mudança de status | 422 |
-| Auditoria de operações (journal) | AV1 | Tabela `JournalTransacao`, gravada na mesma transação | n/a |
+| Auditoria de operações de domínio | AV1 | Tabela `JournalTransacao`, gravada na mesma transação das operações que compartilham a transação | n/a |
 
 Pontos resolvidos pelo código da AV1:
 
 - **"Duas categorias abaixo"**: `EstadoFisico` é uma escala ordenada (`NOVO` = 0 até `INSERVIVEL` = 6); exige justificativa quando `novo - anterior >= 2`.
 - **"Triagem completa"**: vale pelo status do **equipamento** (`AGUARDANDO_DESMONTE`), não pelo status do lote.
 - **Regras da AV1 que saem**: criptografia AES, rotação de arquivo de 10 MB e provisionamento por arquivo mestre deixam de fazer sentido. Registrado como decisão.
-- **Retenção de 180 dias do journal**: ainda a definir (limpeza agendada ou não apagar), ver `DECISOES.md`.
+- **Retenção do journal**: não há política de limpeza automática implementada; a decisão de retenção permanece pendente e está registrada em `DECISOES.md`.
 
 Dica de design da atividade: colocar as regras em funções puras dentro dos services e testá-las isoladamente. É isso que garante que a lógica de negócio "permaneça imune a mudanças na interface".
 
@@ -349,7 +351,7 @@ Dois requisitos explícitos: a **porta vem de variável de ambiente** e o servid
 | --- | --- | --- |
 | Autenticação | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `POST /auth/alterar-senha` | Qualquer usuário |
 | Usuários | `POST/GET /usuarios` | Administrador |
-| Configuração | `GET/PUT /configuracao` | Administrador |
+| Configuração | `GET/PATCH /api/v1/configuracao` | Administrador |
 | Organizações | `POST /organizacoes`, `GET /organizacoes`, `GET /organizacoes/:id`, `PATCH /organizacoes/:id` | Operador de cadastro |
 | Contratos | `PUT /organizacoes/:id/contrato`, `POST /organizacoes/:id/contrato/renovar` | Operador de cadastro |
 | Lotes | `POST /lotes`, `GET /lotes?inicio=&fim=`, `POST /lotes/:id/equipamentos`, `POST /lotes/:id/triagem` | Gestor de almoxarifado |
@@ -449,3 +451,19 @@ O enunciado está deliberadamente aberto. Há pontos de decisão que devem ser r
 - **"Compatível com Windows e Ubuntu"** não diz como será verificado; preparar evidência. Usar a AWS para o Ubuntu, com capturas de tela, e testar o Windows localmente.
 - **Retenção do journal.** Definir se os 180 dias da AV1 continuam (limpeza agendada) ou se nada é apagado.
 - **Atividade seguinte.** O material do `greencode.txt` indica que a próxima etapa adiciona camada analítica e API pública com chaves de API e `rate-limit`. Manter os services desacoplados do Fastify e usar o prefixo `/api/v1` desde já.
+
+## 15. Estado implementado e limitações atuais
+
+Esta seção descreve o código presente, distinguindo-o das propostas históricas das seções anteriores.
+
+- **Camadas:** os módulos seguem a divisão em routes, controllers, services e repositories; as regras de domínio e validação compartilhada estão em `src/dominio/`.
+- **Tecnologias:** o projeto usa Node.js 22.12+, TypeScript, Fastify, Prisma 7.10.1, `@prisma/adapter-mariadb` e MySQL 8.0.16+.
+- **Autenticação:** access token JWT, refresh token persistido por hash, rotação e revogação. Eventos de login, falhas de login, logout válido, rotação e reutilização de refresh token conhecido são registrados por uma escrita best-effort no journal, separada da transação da sessão. Tokens opacos desconhecidos não são persistidos para evitar inundação. Não se afirma atomicidade entre esses eventos e a operação de sessão.
+- **Auditoria:** operações de domínio que passam `tx` a `registrarJournal` gravam o journal dentro da transação. `GET /api/v1/auditoria/journal` é somente leitura, paginado e restrito a `ADMINISTRADOR` e `AUDITOR`; snapshots são filtrados para remover chaves de campos sensíveis.
+- **Triagem:** `resultadoTriagem` representa a decisão de destino; `statusRastreamento` representa o estado operacional. Dados históricos não recebem automaticamente uma decisão inferida.
+- **Baixa definitiva:** operação separada, com autorização, justificativa, versão e campos de auditoria.
+- **Relatórios:** o financeiro considera contratos que estiveram vigentes em algum momento do período, incluindo encerramento antecipado. Os valores são mensais contratuais, não receita recebida/reconhecida. O relatório por organização agrupa pelo status atual dos equipamentos, não por estado histórico no fim do período.
+- **Configuração:** a linha global é inicializada pelo seed e o endpoint GET é somente leitura. A constraint SQL para `valorBaseDepreciacao` ainda depende da verificação de dados existentes antes de uma migração corretiva.
+- **Ambientes:** `logistica_db` é o banco de desenvolvimento; `logistica_db_test` é exclusivo da suíte de integração. A configuração de teste recusa nomes que não terminem em `_test`.
+- **Cancelamento de lotes:** não implementado; aguarda definição e aprovação das regras de negócio.
+- **Execução e testes:** os comandos atuais e os passos para PowerShell/Ubuntu estão no README. O ZIP por si só não comprova que os comandos foram executados no ambiente de destino.

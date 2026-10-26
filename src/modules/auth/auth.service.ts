@@ -4,6 +4,7 @@ import { env } from "../../config/env.js";
 import { ErroDominio } from "../../dominio/erros.js";
 import type { Papel } from "../../dominio/papel.js";
 import { authRepository } from "./auth.repository.js";
+import { registrarEventoSeguranca } from "../auditoria/journal.js";
 
 type AssinarToken = (payload: {
   sub: string;
@@ -47,6 +48,19 @@ export class AuthService {
     };
   }
 
+  private async registrarEvento(
+    operacao: string,
+    usuario: string,
+    dados: Record<string, unknown>,
+  ): Promise<void> {
+    await registrarEventoSeguranca({
+      operacao,
+      entidade: "Autenticacao",
+      usuario: usuario || "desconhecido",
+      dadosDepois: dados,
+    });
+  }
+
   async login(usuario: string, senha: string): Promise<ParTokens> {
     const registro = await authRepository.buscarUsuarioPorNome(usuario);
     const senhaConfere = await bcrypt.compare(
@@ -55,6 +69,7 @@ export class AuthService {
     );
 
     if (!registro || !senhaConfere || !registro.ativo) {
+      await this.registrarEvento("LOGIN_FALHA", registro?.usuario ?? "desconhecido", { resultado: "FALHA" });
       throw new ErroDominio("Usuário ou senha inválidos", 401);
     }
 
@@ -62,8 +77,12 @@ export class AuthService {
     const criouSessao = await authRepository.criarSessaoSeAtivo(
       registro.id, registro.versaoSeguranca, hashDoToken(refreshToken), expiracaoDoRefresh(),
     );
-    if (!criouSessao) throw new ErroDominio("Usuário ou senha inválidos", 401);
+    if (!criouSessao) {
+      await this.registrarEvento("LOGIN_FALHA", registro?.usuario ?? "desconhecido", { resultado: "FALHA" });
+      throw new ErroDominio("Usuário ou senha inválidos", 401);
+    }
 
+    await this.registrarEvento("LOGIN_SUCESSO", registro.usuario, { resultado: "SUCESSO" });
     return this.montarPar(registro.id, registro.usuario, registro.papel, refreshToken, registro.versaoSeguranca);
   }
 
@@ -73,6 +92,8 @@ export class AuthService {
     );
 
     if (!registro) {
+      // Não persistir eventos para tokens opacos desconhecidos: isso permitiria
+      // que chamadas anônimas arbitrárias inundassem o journal
       throw new ErroDominio("Refresh token inválido", 401);
     }
 
@@ -80,6 +101,7 @@ export class AuthService {
     // Por segurança, derruba todas as sessões do usuário.
     if (registro.revogado) {
       await authRepository.revogarTodosDoUsuario(registro.usuarioId);
+      await this.registrarEvento("REFRESH_REUTILIZADO", registro.usuario.usuario, { resultado: "FALHA", motivo: "TOKEN_JA_UTILIZADO" });
       throw new ErroDominio(
         "Refresh token já utilizado; faça login novamente",
         401,
@@ -87,6 +109,7 @@ export class AuthService {
     }
 
     if (registro.expiraEm <= new Date() || !registro.usuario.ativo || registro.usuario.senhaAlteracaoObrigatoria) {
+      await this.registrarEvento("REFRESH_FALHA", registro.usuario.usuario, { resultado: "FALHA", motivo: "SESSAO_INDISPONIVEL" });
       throw new ErroDominio("Sessão expirada ou usuário sem permissão para renovar", 401);
     }
 
@@ -97,9 +120,11 @@ export class AuthService {
     );
 
     if (!rotacionou) {
+      await this.registrarEvento("REFRESH_FALHA", registro.usuario.usuario, { resultado: "FALHA", motivo: "ROTACAO_REJEITADA" });
       throw new ErroDominio("Refresh token já utilizado", 401);
     }
 
+    await this.registrarEvento("REFRESH_ROTACIONADO", registro.usuario.usuario, { resultado: "SUCESSO" });
     return this.montarPar(
       registro.usuarioId,
       registro.usuario.usuario,
@@ -110,7 +135,12 @@ export class AuthService {
   }
 
   async logout(refreshToken: string): Promise<void> {
-    await authRepository.revogarRefreshToken(hashDoToken(refreshToken));
+    const tokenHash = hashDoToken(refreshToken);
+    const registro = await authRepository.buscarRefreshToken(tokenHash);
+    const resultado = await authRepository.revogarRefreshToken(tokenHash);
+    if (registro && resultado.count > 0) {
+      await this.registrarEvento("LOGOUT_SUCESSO", registro.usuario.usuario, { resultado: "SUCESSO" });
+    }
   }
 
   async alterarSenha(

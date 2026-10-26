@@ -470,6 +470,11 @@ describe("Sessão e auditoria", () => {
     expect(reuso.status).toBe(401);
     const derrubado = await chamar("POST", "/auth/refresh", undefined, { refreshToken: novo.corpo.refreshToken });
     expect(derrubado.status).toBe(401);
+    expect(await prisma.journalTransacao.count({ where: { entidade: "Autenticacao", operacao: "REFRESH_ROTACIONADO", usuarioResponsavel: "gestor" } })).toBeGreaterThan(0);
+    expect(await prisma.journalTransacao.count({ where: { entidade: "Autenticacao", operacao: "REFRESH_REUTILIZADO", usuarioResponsavel: "gestor" } })).toBeGreaterThan(0);
+    const journal = JSON.stringify(await prisma.journalTransacao.findMany({ where: { entidade: "Autenticacao" } }));
+    expect(journal).not.toContain(antigo);
+    expect(journal).not.toContain(novo.corpo.refreshToken);
   });
 
   it("o logout revoga o refresh token", async () => {
@@ -477,6 +482,8 @@ describe("Sessão e auditoria", () => {
     const rt = login.corpo.refreshToken;
     expect((await chamar("POST", "/auth/logout", undefined, { refreshToken: rt })).status).toBe(204);
     expect((await chamar("POST", "/auth/refresh", undefined, { refreshToken: rt })).status).toBe(401);
+    expect(await prisma.journalTransacao.count({ where: { entidade: "Autenticacao", operacao: "LOGOUT_SUCESSO", usuarioResponsavel: "operador" } })).toBeGreaterThan(0);
+    expect(JSON.stringify(await prisma.journalTransacao.findMany({ where: { entidade: "Autenticacao" } }))).not.toContain(rt);
   });
 
   it("o administrador cria um usuário e o hash da senha nunca vai ao journal", async () => {
@@ -716,5 +723,93 @@ describe("Baixa definitiva", () => {
     const movimentacao = await chamar("POST", `/equipamentos/${eq.id}/movimentacoes`, "gestor", { destino: "Estoque" });
     expect(movimentacao.status).toBe(409);
     expect(await prisma.journalTransacao.count({ where: { operacao: "BAIXA_DEFINITIVA_EQUIPAMENTO", usuarioResponsavel: "admin" } })).toBe(1);
+  });
+});
+
+
+describe("Auditoria HTTP", () => {
+  it("restringe o journal a administrador e auditor, filtra e pagina sem expor segredos", async () => {
+    expect((await chamar("GET", "/auditoria/journal", "operador")).status).toBe(403);
+
+    const resposta = await chamar(
+      "GET",
+      "/auditoria/journal?entidade=Autenticacao&operacao=LOGIN_SUCESSO&responsavel=admin&pagina=1&limite=100",
+      "auditor",
+    );
+    expect(resposta.status).toBe(200);
+    expect(resposta.corpo.registros.length).toBeGreaterThan(0);
+    expect(resposta.corpo.registros.every((r: any) => r.entidade === "Autenticacao" && r.operacao === "LOGIN_SUCESSO" && r.usuarioResponsavel.includes("admin"))).toBe(true);
+    expect(resposta.corpo.pagina).toBe(1);
+    expect(resposta.corpo.limite).toBe(100);
+    expect(JSON.stringify(resposta.corpo)).not.toContain(SENHAS.admin);
+    expect(JSON.stringify(resposta.corpo)).not.toContain("hashSenha");
+
+    const segredoDeTeste = "SEGREDO_FICTICIO_NAO_EXIBIR";
+    await prisma.journalTransacao.create({
+      data: {
+        operacao: "TESTE_SANITIZACAO",
+        entidade: "TesteSeguranca",
+        usuarioResponsavel: "admin",
+        dadosAntes: { hashSenha: segredoDeTeste, aninhado: { refreshToken: segredoDeTeste }, campoVisivel: "visível" },
+        dadosDepois: { senha: segredoDeTeste, observacao: "dado não sensível" },
+      },
+    });
+    const sanitizado = await chamar("GET", "/auditoria/journal?entidade=TesteSeguranca&limite=10", "admin");
+    expect(sanitizado.status).toBe(200);
+    expect(JSON.stringify(sanitizado.corpo)).not.toContain(segredoDeTeste);
+    expect(JSON.stringify(sanitizado.corpo)).not.toContain("hashSenha");
+    expect(JSON.stringify(sanitizado.corpo)).toContain("dado não sensível");
+
+    const pagina = await chamar("GET", "/auditoria/journal?limite=1&pagina=1", "admin");
+    expect(pagina.status).toBe(200);
+    expect(pagina.corpo.registros).toHaveLength(1);
+    expect(pagina.corpo.total).toBeGreaterThanOrEqual(1);
+
+    expect((await chamar("GET", "/auditoria/journal?pagina=0", "admin")).status).toBe(400);
+    expect((await chamar("GET", "/auditoria/journal?inicio=2026-03-31&fim=2026-03-01", "admin")).status).toBe(422);
+  });
+});
+
+describe("Relatório financeiro — vigência efetiva no período", () => {
+  it("inclui contratos ativos em parte do período e exclui os encerrados ou vencidos antes dele", async () => {
+    const contratos = [
+      { cnpj: "99000000000001", nome: "Contrato ativo no período", assinatura: "2030-01-01T00:00:00.000Z", vencimento: "2030-12-31T23:59:59.999Z", encerrado: null },
+      { cnpj: "99000000000002", nome: "Contrato vencido antes", assinatura: "2029-01-01T00:00:00.000Z", vencimento: "2030-02-28T23:59:59.999Z", encerrado: null },
+      { cnpj: "99000000000003", nome: "Contrato encerrado antes", assinatura: "2030-01-01T00:00:00.000Z", vencimento: "2030-12-31T23:59:59.999Z", encerrado: "2030-02-28T23:59:59.999Z" },
+      { cnpj: "99000000000004", nome: "Contrato encerrado durante", assinatura: "2030-01-01T00:00:00.000Z", vencimento: "2030-12-31T23:59:59.999Z", encerrado: "2030-03-15T12:00:00.000Z" },
+      { cnpj: "99000000000005", nome: "Contrato assinado no limite final", assinatura: "2030-03-31T23:59:59.999Z", vencimento: "2030-12-31T23:59:59.999Z", encerrado: null },
+      { cnpj: "99000000000006", nome: "Contrato encerrado no limite inicial", assinatura: "2030-01-01T00:00:00.000Z", vencimento: "2030-12-31T23:59:59.999Z", encerrado: "2030-03-01T00:00:00.000Z" },
+    ];
+
+    for (const item of contratos) {
+      const organizacao = await prisma.organizacao.create({
+        data: { razaoSocial: item.nome, cnpj: item.cnpj, enderecoCompleto: "Registro de teste" },
+      });
+      await prisma.contrato.create({
+        data: {
+          organizacaoId: organizacao.id,
+          dataAssinatura: new Date(item.assinatura),
+          dataVencimento: new Date(item.vencimento),
+          clausulas: ["Contrato de teste"],
+          valorMensal: 100,
+          encerradoEm: item.encerrado ? new Date(item.encerrado) : null,
+        },
+      });
+    }
+
+    const relatorio = await chamar(
+      "GET",
+      "/relatorios/financeiro?inicio=2030-03-01&fim=2030-03-31",
+      "admin",
+    );
+    expect(relatorio.status).toBe(200);
+    expect(relatorio.corpo.contratosNoPeriodo).toBe(4);
+    expect(relatorio.corpo.contratos.map((c: any) => c.cnpj).sort()).toEqual([
+      "99000000000001",
+      "99000000000004",
+      "99000000000005",
+      "99000000000006",
+    ]);
+    expect(relatorio.corpo.observacao).toContain("Não representa receita recebida ou reconhecida");
   });
 });

@@ -6,7 +6,7 @@ services:
     container_name: logistica-db
     environment:
       MYSQL_ROOT_PASSWORD: senha
-      MYSQL_DATABASE: greencode
+      MYSQL_DATABASE: logistica_db
     ports:
       - "3306:3306"
     volumes:

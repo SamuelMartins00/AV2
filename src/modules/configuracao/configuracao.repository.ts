@@ -3,13 +3,10 @@ import type { ParametrosParciais } from "../../dominio/parametros.js";
 import { registrarJournal } from "../auditoria/journal.js";
 
 export const configuracaoRepository = {
-  // A configuração é uma linha única (id = 1); se não existir, é criada com os padrões
+  // A configuração é uma linha única (id = 1). A leitura não cria nem altera dados;
+  // a inicialização é responsabilidade do seed ou de uma operação administrativa.
   obter() {
-    return prisma.configuracaoGlobal.upsert({
-      where: { id: 1 },
-      update: {},
-      create: { id: 1 },
-    });
+    return prisma.configuracaoGlobal.findUnique({ where: { id: 1 } });
   },
 
   atualizar(dados: ParametrosParciais, usuario: string) {
