@@ -67,17 +67,13 @@ Este documento registra decisões que podem ser sustentadas pelo código atual.
 - **Motivo:** separar dados operacionais dos dados que a suíte de integração limpa.
 - **Trade-off:** a configuração do `.env` deve ser verificada antes de aplicar migrações ou rodar a suíte de integração.
 
-## Alternativas consideradas e não adotadas nesta etapa
+### D-11 — Exclusão física condicionada de lotes e equipamentos
 
-- Microserviços: complexidade operacional desnecessária para o escopo atual.
-- Substituição de Prisma ou do adapter: sem justificativa técnica demonstrada.
-- Novo mecanismo de auditoria: desnecessário porque `JournalTransacao` atende ao modelo comum.
-- Exclusão física de dados com histórico: incompatível com a preservação da rastreabilidade.
-- Cancelamento de lotes: não implementado até aprovação das regras de negócio.
-
-## Pendências que exigem decisão ou validação
-
-1. Verificar se existem registros em `ConfiguracaoGlobal` com `valorBaseDepreciacao <= 0` ou outros valores incompatíveis antes de criar uma migração de constraint.
-2. Definir a política de cancelamento de lotes: permissões, etapas permitidas, efeito sobre equipamentos e movimentações, reversibilidade e auditoria.
-3. Definir política de retenção do journal. Nenhuma rotina automática de limpeza é presumida neste documento.
-4. Validar os ambientes Windows e Ubuntu na infraestrutura real de execução.
+- **Decisão:** disponibilizar `DELETE /api/v1/lotes/:id` e `DELETE /api/v1/equipamentos/:id` sem exclusão em cascata e sem novos estados de exclusão lógica.
+- **Lote:** excluir fisicamente somente quando estiver em `RECEBIDO` e sem equipamentos. Se houver equipamentos ou o lote já estiver em outro estado operacional, responder HTTP 409. A operação não remove equipamentos para satisfazer a condição.
+- **Equipamento:** excluir fisicamente somente no estado inicial, sem movimentações, dados de triagem/baixa ou eventos operacionais próprios no journal. Se houver histórico operacional, bloquear a remoção com HTTP 409. Não confundir exclusão cadastral com baixa definitiva.
+- **Autorização:** reutilizar os papéis já autorizados a gerir lotes/equipamentos (`ADMINISTRADOR` e `GESTOR_ALMOXARIFADO`); não ampliar a autorização para operador ou auditor.
+- **Integridade e concorrência:** verificar vínculos antes da remoção, condicionar o `deleteMany` à versão lida e manter as FKs `onDelete: Restrict` como proteção final contra corridas. Conflitos concorrentes são reportados como 409.
+- **Auditoria:** gravar `EXCLUIR` com snapshot anterior dentro da mesma transação. Se o journal falhar, a exclusão não deve ser confirmada. Os eventos de auditoria existentes não são apagados.
+- **Alternativas rejeitadas:** exclusão em cascata de equipamentos/movimentações; exclusão de equipamentos já triados ou baixados; exclusão lógica improvisada com novos campos/estados; remoção de registros históricos para contornar FKs.
+- **Limitação:** o journal mantém snapshots JSON e não possui FK para lote/equipamento. A remoção segura depende das verificações do service/repository, controle de versão e constraints relacionais existentes.

@@ -128,3 +128,38 @@ export const baixaDefinitivaSchema = {
     },
   },
 } as const;
+
+export const excluirEquipamentoSchema = {
+  params: paramsIdSchema,
+  summary: "Excluir equipamento sem histórico",
+  description:
+    "Disponível para ADMINISTRADOR e GESTOR_ALMOXARIFADO. Só permite exclusão física se o equipamento permanecer no estado inicial, sem movimentações nem eventos operacionais no journal. Triagem, desmontagem, baixa definitiva e demais alterações históricas bloqueiam a exclusão. O evento de exclusão é gravado atomicamente.",
+  response: {
+    204: { description: "Equipamento excluído." },
+    400: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    401: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    403: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    404: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    409: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+  },
+} as const;

@@ -1,7 +1,5 @@
 # AV2 – greencode: Entendendo a Atividade
 
-> **Estado do código (26/10/2026):** este documento reúne a justificativa arquitetural e o contexto da atividade, incluindo trechos de planejamento histórico. Quando uma tabela de rotas ou um plano abaixo divergir do código atual, consulte `README.md`, `docs/DECISOES.md` e os módulos em `src/`. O registro atual de decisões adotadas está em `docs/DECISOES.md`.
-
 As justificativas completas estão em `DECISOES.md`
 
 ## 1. Visão geral
@@ -106,7 +104,7 @@ O enunciado exige cinco modelos: `Organizacao`, `Contrato`, `Lote`, `Equipamento
 | --- | --- | --- |
 | Organizacao → Contrato | 1 para 0..1 | `Contrato.organizacaoId` com `@unique` |
 | Organizacao → Lote | 1 para muitos | Lote sempre pertence a uma organização |
-| Lote → Equipamento | 1 para 1..* | `loteId` obrigatório em Equipamento |
+| Lote → Equipamento | 1 para 0..* | `loteId` obrigatório em Equipamento; lote pode existir vazio, mas não pode ser excluído se possuir equipamentos vinculados |
 | Equipamento → Movimentacao | 1 para muitos | Histórico de rastreabilidade |
 | Usuario → RefreshToken | 1 para muitos | Permite logout real por revogação |
 | Usuario | independente | Guarda `hashSenha` e `papel` |

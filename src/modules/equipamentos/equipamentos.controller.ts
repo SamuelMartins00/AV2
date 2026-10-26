@@ -21,6 +21,14 @@ export class EquipamentosController {
     return this.service.rastrear(request.params.id);
   };
 
+  excluir = async (
+    request: FastifyRequest<{ Params: ParamsId }>,
+    reply: FastifyReply,
+  ) => {
+    await this.service.excluir(request.params.id, request.user.usuario);
+    return reply.status(204).send();
+  };
+
   depreciacao = async (request: FastifyRequest<{ Params: ParamsId }>) => {
     return this.service.depreciacao(request.params.id);
   };

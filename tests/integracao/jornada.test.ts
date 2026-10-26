@@ -33,7 +33,7 @@ const dataISO = (dias: number) =>
   new Date(Date.now() + dias * 86_400_000).toISOString().slice(0, 10);
 
 async function chamar(
-  metodo: "GET" | "POST" | "PATCH" | "PUT",
+  metodo: "GET" | "POST" | "PATCH" | "PUT" | "DELETE",
   url: string,
   quem?: string,
   corpo?: unknown,
@@ -811,5 +811,104 @@ describe("Relatório financeiro — vigência efetiva no período", () => {
       "99000000000006",
     ]);
     expect(relatorio.corpo.observacao).toContain("Não representa receita recebida ou reconhecida");
+  });
+});
+
+describe("Exclusão segura de lotes e equipamentos", () => {
+  async function criarLoteVazio() {
+    const resposta = await chamar("POST", "/lotes", "gestor", {
+      dataEntrada: dataISO(-1),
+      organizacaoId: ctx.organizacaoId,
+      notaFiscal: `EXCLUSAO-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      transportadora: "Transportadora de teste",
+    });
+    expect(resposta.status).toBe(201);
+    return resposta.corpo;
+  }
+
+  async function criarLoteComEquipamento() {
+    const resposta = await chamar("POST", "/lotes", "gestor", {
+      dataEntrada: dataISO(-1),
+      organizacaoId: ctx.organizacaoId,
+      notaFiscal: `EXCLUSAO-EQ-${Date.now()}-${Math.random().toString(16).slice(2, 6)}`,
+      transportadora: "Transportadora de teste",
+      equipamentos: [{
+        tipo: "NOTEBOOK",
+        marca: "Marca teste",
+        modelo: "Modelo para exclusão",
+        anoFabricacao: 2021,
+        estadoFisico: "NOVO",
+        pesoQuilogramas: 1.2,
+      }],
+    });
+    expect(resposta.status).toBe(201);
+    return resposta.corpo;
+  }
+
+  it("permite excluir lote vazio e registra o evento na auditoria", async () => {
+    const lote = await criarLoteVazio();
+
+    expect((await chamar("DELETE", `/lotes/${lote.id}`, "operador")).status).toBe(403);
+    expect((await chamar("DELETE", `/lotes/${lote.id}`)).status).toBe(401);
+
+    const removido = await chamar("DELETE", `/lotes/${lote.id}`, "gestor");
+    expect(removido.status).toBe(204);
+    expect(await prisma.lote.findUnique({ where: { id: lote.id } })).toBeNull();
+
+    const journal = await prisma.journalTransacao.findFirst({
+      where: { operacao: "EXCLUIR", entidade: "Lote", usuarioResponsavel: "gestor" },
+      orderBy: { id: "desc" },
+    });
+    expect(journal?.dadosAntes).toMatchObject({ id: lote.id, statusProcessamento: "RECEBIDO" });
+  });
+
+  it("bloqueia exclusão de lote com equipamentos e de lote inexistente", async () => {
+    const lote = await criarLoteComEquipamento();
+
+    expect((await chamar("DELETE", `/lotes/${lote.id}`, "gestor")).status).toBe(409);
+    expect((await chamar("DELETE", "/lotes/2147483647", "gestor")).status).toBe(404);
+    expect(await prisma.lote.findUnique({ where: { id: lote.id } })).not.toBeNull();
+    expect(await prisma.equipamento.count({ where: { loteId: lote.id } })).toBe(1);
+  });
+
+  it("permite excluir equipamento sem histórico e registra o evento no journal", async () => {
+    const lote = await criarLoteComEquipamento();
+    const equipamento = lote.equipamentos[0];
+
+    const removido = await chamar("DELETE", `/equipamentos/${equipamento.id}`, "gestor");
+    expect(removido.status).toBe(204);
+    expect(await prisma.equipamento.findUnique({ where: { id: equipamento.id } })).toBeNull();
+    expect(await prisma.lote.findUnique({ where: { id: lote.id } })).not.toBeNull();
+
+    const journal = await prisma.journalTransacao.findFirst({
+      where: { operacao: "EXCLUIR", entidade: "Equipamento", usuarioResponsavel: "gestor" },
+      orderBy: { id: "desc" },
+    });
+    expect(journal?.dadosAntes).toMatchObject({ id: equipamento.id, loteId: lote.id });
+  });
+
+  it("bloqueia exclusão de equipamento com histórico operacional", async () => {
+    const equipamento = ctx.equipamentos[0];
+    expect(equipamento).toBeDefined();
+
+    const resposta = await chamar("DELETE", `/equipamentos/${equipamento.id}`, "gestor");
+    expect(resposta.status).toBe(409);
+    expect(await prisma.equipamento.findUnique({ where: { id: equipamento.id } })).not.toBeNull();
+    expect(await prisma.movimentacao.count({ where: { equipamentoId: equipamento.id } })).toBeGreaterThan(0);
+  });
+
+  it("serializa tentativas concorrentes de exclusão do mesmo lote", async () => {
+    const lote = await criarLoteVazio();
+    const respostas = await Promise.all([
+      chamar("DELETE", `/lotes/${lote.id}`, "gestor"),
+      chamar("DELETE", `/lotes/${lote.id}`, "gestor"),
+    ]);
+
+    expect(respostas.filter((r) => r.status === 204)).toHaveLength(1);
+    expect(respostas.every((r) => [204, 404, 409].includes(r.status))).toBe(true);
+    expect(await prisma.lote.findUnique({ where: { id: lote.id } })).toBeNull();
+    expect(await prisma.journalTransacao.count({
+      where: { operacao: "EXCLUIR", entidade: "Lote", dadosAntes: { path: "$.id", equals: lote.id } },
+    })).toBe(1);
   });
 });

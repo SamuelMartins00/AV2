@@ -27,6 +27,14 @@ export class LotesController {
     return this.service.buscar(request.params.id);
   };
 
+  excluir = async (
+    request: FastifyRequest<{ Params: ParamsId }>,
+    reply: FastifyReply,
+  ) => {
+    await this.service.excluir(request.params.id, request.user.usuario);
+    return reply.status(204).send();
+  };
+
   adicionarEquipamentos = async (
     request: FastifyRequest<{ Params: ParamsId; Body: AdicionarEquipamentosBody }>,
     reply: FastifyReply,

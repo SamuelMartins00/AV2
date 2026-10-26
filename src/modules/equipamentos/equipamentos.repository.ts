@@ -8,9 +8,81 @@ import type {
 import { registrarJournal } from "../auditoria/journal.js";
 import type { ResultadoEscrita } from "../compartilhado/params.js";
 
+function ehViolacaoReferencia(erro: unknown): boolean {
+  return typeof erro === "object" && erro !== null && "code" in erro &&
+    (erro as { code: unknown }).code === "P2003";
+}
+
 export const equipamentosRepository = {
   buscarPorId(id: number) {
     return prisma.equipamento.findUnique({ where: { id } });
+  },
+
+  excluir(id: number, usuario: string) {
+    return prisma.$transaction(async (tx) => {
+      const antes = await tx.equipamento.findUnique({ where: { id } });
+      if (!antes) return { tipo: "nao_encontrada" as const };
+
+      const estadoInicial =
+        antes.statusRastreamento === "AGUARDANDO_TRIAGEM" &&
+        antes.resultadoTriagem === "AGUARDANDO_AVALIACAO" &&
+        antes.triagemResponsavel === null &&
+        antes.triagemEm === null &&
+        antes.triagemJustificativa === null &&
+        antes.baixadoEm === null &&
+        antes.baixaResponsavel === null &&
+        antes.baixaJustificativa === null;
+      if (!estadoInicial) return { tipo: "bloqueada" as const };
+
+      const movimentacoes = await tx.movimentacao.count({ where: { equipamentoId: id } });
+      if (movimentacoes > 0) return { tipo: "bloqueada" as const };
+
+      // Operações de triagem, movimentação, alteração operacional e baixa
+      // gravam snapshots com o id do equipamento no journal.
+      const historico = await tx.journalTransacao.findFirst({
+        where: {
+          entidade: "Equipamento",
+          OR: [
+            { dadosAntes: { path: "$.id", equals: id } },
+            { dadosDepois: { path: "$.id", equals: id } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (historico) return { tipo: "bloqueada" as const };
+
+      // A versão impede remover um equipamento alterado concorrentemente.
+      // A FK Restrict em Movimentacao impede qualquer remoção que escape à verificação
+      // equipamentosSEPM
+      try {
+        const removido = await tx.equipamento.deleteMany({
+          where: {
+            id,
+            versao: antes.versao,
+            statusRastreamento: "AGUARDANDO_TRIAGEM",
+            resultadoTriagem: "AGUARDANDO_AVALIACAO",
+            triagemResponsavel: null,
+            triagemEm: null,
+            triagemJustificativa: null,
+            baixadoEm: null,
+            baixaResponsavel: null,
+            baixaJustificativa: null,
+          },
+        });
+        if (removido.count === 0) return { tipo: "conflito" as const };
+
+        await registrarJournal(tx, {
+          operacao: "EXCLUIR",
+          entidade: "Equipamento",
+          dadosAntes: antes,
+          usuario,
+        });
+        return { tipo: "ok" as const };
+      } catch (erro) {
+        if (ehViolacaoReferencia(erro)) return { tipo: "bloqueada" as const };
+        throw erro;
+      }
+    });
   },
 
   listar(filtros: {

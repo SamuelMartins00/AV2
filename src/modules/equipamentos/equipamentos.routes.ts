@@ -7,6 +7,7 @@ import {
   baixaDefinitivaSchema,
   atualizarStatusSchema,
   consultarEquipamentoSchema,
+  excluirEquipamentoSchema,
   listarEquipamentosSchema,
   movimentarSchema,
   type AtualizarEstadoBody,
@@ -41,6 +42,12 @@ export default async function equipamentosRoutes(app: FastifyInstance) {
     "/:id/historico",
     { schema: consultarEquipamentoSchema, onRequest: leitura },
     controller.historico,
+  );
+
+  app.delete<{ Params: ParamsId }>(
+    "/:id",
+    { schema: excluirEquipamentoSchema, onRequest: escrita },
+    controller.excluir,
   );
 
   app.get<{ Params: ParamsId }>(

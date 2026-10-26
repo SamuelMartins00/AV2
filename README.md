@@ -99,6 +99,7 @@ Em Ubuntu, use os mesmos comandos em Bash. `npm test` executa os testes unitári
 - Autorização por papéis: administrador, operador de cadastro, gestor de almoxarifado e auditor.
 - Organizações e contratos, incluindo encerramento antecipado e renovação controlada.
 - Lotes, triagem individual, movimentações e rastreabilidade de equipamentos.
+- Exclusão segura de lotes vazios e equipamentos sem histórico operacional por `DELETE /api/v1/lotes/:id` e `DELETE /api/v1/equipamentos/:id` (papéis `ADMINISTRADOR` e `GESTOR_ALMOXARIFADO`); vínculos e histórico bloqueiam a remoção.
 - Baixa definitiva autorizada, justificada e auditada.
 - Relatórios por organização, status e valores contratuais mensais.
 - Parâmetros globais persistidos de impostos e depreciação.

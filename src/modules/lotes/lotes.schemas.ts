@@ -125,3 +125,38 @@ export const triagemSchema = {
     properties: { versao: { type: "integer", minimum: 1 } },
   },
 } as const;
+
+export const excluirLoteSchema = {
+  params: paramsIdSchema,
+  summary: "Excluir lote vazio",
+  description:
+    "Disponível para ADMINISTRADOR e GESTOR_ALMOXARIFADO. Só permite exclusão física de lote em estado RECEBIDO sem equipamentos vinculados. Retorna 409 se houver equipamentos, estado operacional diferente ou conflito concorrente. O evento é registrado no journal na mesma transação.",
+  response: {
+    204: { description: "Lote excluído." },
+    400: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    401: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    403: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    404: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+    409: {
+      type: "object",
+      properties: { erro: { type: "string" } },
+      required: ["erro"],
+    },
+  },
+} as const;

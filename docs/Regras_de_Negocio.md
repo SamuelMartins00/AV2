@@ -31,6 +31,8 @@
 - Existem endpoints para criar/listar/consultar lotes, adicionar equipamentos e concluir triagem do lote.
 - A posição do equipamento é única dentro do lote (`@@unique([loteId, posicaoNoLote])`).
 - **Cancelamento de lote: não implementado nas rotas identificadas.** Não inferir política de cancelamento sem decisão explícita.
+- **Exclusão física de lote:** `DELETE /api/v1/lotes/:id` é permitida para `ADMINISTRADOR` e `GESTOR_ALMOXARIFADO` somente quando o lote está em `RECEBIDO` e não possui equipamentos vinculados. Lote inexistente retorna 404; estado incompatível, vínculos ou conflito concorrente retornam 409. A verificação é feita no service/repository e a FK `Lote.organizacao` com `onDelete: Restrict` continua protegendo a integridade.
+- A exclusão não apaga equipamentos automaticamente. Um lote com qualquer equipamento vinculado não pode ser excluído, mesmo que os equipamentos ainda não tenham histórico.
 
 ## 4. Equipamentos, triagem e baixa definitiva
 
@@ -41,6 +43,9 @@
 - Baixa definitiva possui campos próprios para data/hora, responsável e justificativa; a rota exige administrador e a implementação registra controle de versão e auditoria.
 - Existem rotas de consulta/histórico, alteração de estado físico, alteração de status, movimentação, triagem individual e baixa definitiva.
 - As regras de transição entre estados dependem dos validadores e serviços; não se deve presumir que todas as combinações dos enums sejam transições válidas.
+- **Exclusão física de equipamento:** `DELETE /api/v1/equipamentos/:id` é permitida para `ADMINISTRADOR` e `GESTOR_ALMOXARIFADO` apenas quando o equipamento permanece no estado inicial (`AGUARDANDO_TRIAGEM` e `AGUARDANDO_AVALIACAO`), não possui campos de triagem/baixa preenchidos, movimentações nem eventos operacionais no journal que identifiquem o equipamento. A operação não é baixa definitiva nem altera o estado operacional.
+- Equipamentos com triagem, mudança operacional registrada, movimentação, desmontagem ou baixa definitiva são preservados e a exclusão é bloqueada com HTTP 409. Equipamento inexistente retorna 404.
+- A exclusão de equipamento não exclui o lote pai. A FK `Movimentacao.equipamento` usa `onDelete: Restrict`; se houver uma movimentação que escape à verificação prévia, a restrição do banco bloqueia a exclusão.
 
 ## 5. Movimentações e rastreabilidade
 
@@ -70,6 +75,7 @@
 - `registrarJournal(tx, ...)` grava na transação de negócio; se falhar, a transação deve falhar. Eventos de segurança de autenticação são best-effort e podem faltar se o journal não estiver disponível.
 - Tokens, senhas e hashes não devem ser gravados no journal.
 - Relações de organização/contrato, organização/lote, lote/equipamento e equipamento/movimentação usam restrições referenciais para evitar remoção em cascata de dados operacionais.
+- Exclusões de lote/equipamento permitidas são registradas como `EXCLUIR` no journal dentro da mesma transação da exclusão. Se a gravação do journal falhar, a transação não deve confirmar a remoção. O snapshot anterior é preservado no journal como JSON; não há FK do journal para esses modelos.
 - Como o responsável do journal é texto e não FK, a auditoria mantém o nome do ator após excluir a conta, mas não oferece vínculo relacional com o usuário original.
 
 ## 9. Validações e concorrência
@@ -78,4 +84,4 @@
 - IDs administrativos de usuário devem seguir o padrão textual de inteiro positivo. Paginação de usuários segue `page >= 1` e `1 <= limit <= 100`.
 - O banco protege unicidade de login, CNPJ, código de barras interno e posição no lote, além das relações declaradas.
 - Operações que alteram o conjunto de administradores bloqueiam a linha de controle de `ConfiguracaoGlobal` e usam transações. Conflitos concorrentes reconhecidos são convertidos em HTTP 409.
-- Exclusão física não é uma regra geral para entidades operacionais; a exclusão de usuário é uma exceção específica após verificação de autorização, autoexclusão, último administrador e registro do journal.
+- Exclusão física não é uma regra geral para entidades operacionais. Lotes só podem ser excluídos vazios e em estado inicial; equipamentos só podem ser excluídos sem histórico operacional. A exclusão de usuário segue política específica documentada na seção 1.

@@ -5,6 +5,7 @@ import {
   adicionarEquipamentosSchema,
   buscarLoteSchema,
   criarLoteSchema,
+  excluirLoteSchema,
   listarLotesSchema,
   triagemSchema,
   type AdicionarEquipamentosBody,
@@ -39,6 +40,12 @@ export default async function lotesRoutes(app: FastifyInstance) {
     "/:id",
     { schema: buscarLoteSchema },
     controller.buscar,
+  );
+
+  app.delete<{ Params: ParamsId }>(
+    "/:id",
+    { schema: excluirLoteSchema },
+    controller.excluir,
   );
 
   app.post<{ Params: ParamsId; Body: AdicionarEquipamentosBody }>(

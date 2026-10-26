@@ -37,10 +37,12 @@ const RESUMOS: Record<string, string> = {
   "POST /api/v1/lotes": "Registra lote, com equipamentos opcionais (administrador, gestor)",
   "GET /api/v1/lotes": "Lista lotes por período de entrada (administrador, gestor)",
   "GET /api/v1/lotes/:id": "Consulta um lote com seus equipamentos (administrador, gestor)",
+  "DELETE /api/v1/lotes/:id": "Exclui lote vazio sem equipamentos vinculados (administrador, gestor)",
   "POST /api/v1/lotes/:id/equipamentos": "Adiciona equipamentos a um lote aberto (administrador, gestor)",
   "POST /api/v1/lotes/:id/triagem": "Conclui a triagem do lote, com controle de versão (administrador, gestor)",
 
   "GET /api/v1/equipamentos/:id/historico": "Rastreabilidade: equipamento e movimentações (administrador, gestor, auditor)",
+  "DELETE /api/v1/equipamentos/:id": "Exclui equipamento sem histórico operacional (administrador, gestor)",
   "GET /api/v1/equipamentos/:id/depreciacao": "Calcula a depreciação acumulada (administrador, gestor)",
   "PATCH /api/v1/equipamentos/:id/estado-fisico": "Altera o estado físico, com controle de versão (administrador, gestor)",
   "PATCH /api/v1/equipamentos/:id/status": "Altera o status de rastreamento, com controle de versão (administrador, gestor)",

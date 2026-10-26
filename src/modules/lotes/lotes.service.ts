@@ -153,6 +153,22 @@ export class LotesService {
     return loteParaResposta(lote);
   }
 
+  async excluir(id: number, usuario: string): Promise<void> {
+    const resultado = await repo.excluir(id, usuario);
+    if (resultado.tipo === "nao_encontrada") {
+      throw new ErroDominio(`Lote ${id} não encontrado.`, 404);
+    }
+    if (resultado.tipo === "conflito") {
+      throw new ErroDominio(MSG_CONFLITO, 409);
+    }
+    if (resultado.tipo === "bloqueada") {
+      throw new ErroDominio(
+        "A exclusão do lote só é permitida quando ele está em estado RECEBIDO e não possui equipamentos vinculados.",
+        409,
+      );
+    }
+  }
+
   async adicionarEquipamentos(
     id: number,
     corpo: AdicionarEquipamentosBody,

@@ -92,6 +92,11 @@ async function inserirEquipamentos(
   }
 }
 
+function ehViolacaoReferencia(erro: unknown): boolean {
+  return typeof erro === "object" && erro !== null && "code" in erro &&
+    (erro as { code: unknown }).code === "P2003";
+}
+
 export const lotesRepository = {
   async organizacaoExiste(id: number): Promise<boolean> {
     return (await prisma.organizacao.count({ where: { id } })) > 0;
@@ -99,6 +104,43 @@ export const lotesRepository = {
 
   buscarPorId(id: number) {
     return prisma.lote.findUnique({ where: { id }, include: comEquipamentos });
+  },
+
+  excluir(id: number, usuario: string) {
+    return prisma.$transaction(async (tx) => {
+      const antes = await tx.lote.findUnique({
+        where: { id },
+        include: comEquipamentos,
+      });
+      if (!antes) return { tipo: "nao_encontrada" as const };
+      if (antes.equipamentos.length > 0 || antes.statusProcessamento !== "RECEBIDO") {
+        return { tipo: "bloqueada" as const };
+      }
+
+      // A versão e o estado fazem a exclusão concorrer com inclusão de equipamentos
+      // e transições do lote. A FK Restrict continua sendo a última proteção do banco.
+      try {
+        const removido = await tx.lote.deleteMany({
+          where: {
+            id,
+            versao: antes.versao,
+            statusProcessamento: "RECEBIDO",
+          },
+        });
+        if (removido.count === 0) return { tipo: "conflito" as const };
+
+        await registrarJournal(tx, {
+          operacao: "EXCLUIR",
+          entidade: "Lote",
+          dadosAntes: antes,
+          usuario,
+        });
+        return { tipo: "ok" as const };
+      } catch (erro) {
+        if (ehViolacaoReferencia(erro)) return { tipo: "bloqueada" as const };
+        throw erro;
+      }
+    });
   },
 
   listarPorPeriodo(

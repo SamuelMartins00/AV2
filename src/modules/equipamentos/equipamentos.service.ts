@@ -53,6 +53,20 @@ export class EquipamentosService {
     };
   }
 
+  async excluir(id: number, usuario: string): Promise<void> {
+    const resultado = await repo.excluir(id, usuario);
+    if (resultado.tipo === "nao_encontrada") throw naoEncontrado(id);
+    if (resultado.tipo === "conflito") {
+      throw new ErroDominio(MSG_CONFLITO, 409);
+    }
+    if (resultado.tipo === "bloqueada") {
+      throw new ErroDominio(
+        "A exclusão física só é permitida para equipamento sem histórico operacional, movimentações, triagem, desmontagem ou baixa definitiva.",
+        409,
+      );
+    }
+  }
+
   async atualizarEstado(
     id: number,
     corpo: AtualizarEstadoBody,
