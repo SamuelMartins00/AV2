@@ -27,6 +27,11 @@ export class UsuariosController {
   atualizarMeuNome = async (request: FastifyRequest<{ Body: AtualizarMeuNomeBody }>) =>
     this.service.atualizarMeuNome(Number(request.user.sub), request.body.nomeExibicao, request.user.usuario);
 
+  excluir = async (request: FastifyRequest<{ Params: IdParams }>, reply: FastifyReply) => {
+    await this.service.excluir(Number(request.params.id), Number(request.user.sub), request.user.usuario);
+    return reply.status(204).send();
+  };
+
   redefinirSenha = async (request: FastifyRequest<{ Params: IdParams; Body: RedefinirSenhaBody }>, reply: FastifyReply) => {
     await this.service.redefinirSenha(Number(request.params.id), request.body.senhaNova, Number(request.user.sub), request.user.usuario);
     return reply.status(204).send();

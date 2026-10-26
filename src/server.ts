@@ -25,6 +25,8 @@ process.on("SIGTERM", () => void encerrar("SIGTERM"));
 
 try {
   await app.listen({ port: env.port, host: env.host });
+  const hostSwagger = env.host === "0.0.0.0" || env.host === "::" ? "127.0.0.1" : env.host;
+  app.log.info(`Swagger disponível em: http://${hostSwagger}:${env.port}/docs`);
 } catch (erro) {
   app.log.error(erro);
   await prisma.$disconnect();

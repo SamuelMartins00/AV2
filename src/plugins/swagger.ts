@@ -57,6 +57,7 @@ const RESUMOS: Record<string, string> = {
 
   "POST /api/v1/usuarios": "Cria uma conta de acesso (administrador)",
   "GET /api/v1/usuarios": "Lista as contas de acesso (administrador)",
+  "DELETE /api/v1/usuarios/:id": "Exclui uma conta, revoga suas sessões e preserva o journal (administrador)",
 
   "GET /api/v1/saude": "Verifica o servidor e a conexão com o banco",
 };

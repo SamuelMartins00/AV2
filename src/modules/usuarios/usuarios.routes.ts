@@ -21,6 +21,7 @@ export default async function usuariosRoutes(app: FastifyInstance) {
   app.get<{ Params: { id: string } }>("/:id", { onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")], schema: idUsuarioSchema }, controller.buscar);
   app.patch<{ Params: { id: string }; Body: AtualizarUsuarioBody }>("/:id", { onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")], schema: atualizarUsuarioSchema }, controller.atualizar);
   app.put<{ Params: { id: string }; Body: RedefinirSenhaBody }>("/:id/senha", { onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")], schema: redefinirSenhaSchema }, controller.redefinirSenha);
+  app.delete<{ Params: { id: string } }>("/:id", { onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")], schema: idUsuarioSchema }, controller.excluir);
   app.patch<{ Params: { id: string } }>("/:id/desativar", { onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")], schema: idUsuarioSchema }, controller.desativar);
   app.patch<{ Params: { id: string } }>("/:id/reativar", { onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")], schema: idUsuarioSchema }, controller.reativar);
 }

@@ -12,6 +12,7 @@ const erroRegra = (erro: unknown): never => {
   if (codigo === "ATOR_SEM_PERMISSAO") throw new ErroDominio("Sem permissão para esta ação", 403);
   if (codigo === "ALTERACAO_OUTRO_ADMINISTRADOR_PROIBIDA") throw new ErroDominio("Não é permitido desativar ou alterar o papel de outro administrador", 403);
   if (codigo === "ULTIMO_ADMINISTRADOR") throw new ErroDominio("A operação deixaria o sistema sem administrador ativo", 409);
+  if (codigo === "EXCLUSAO_PROPRIA_PROIBIDA") throw new ErroDominio("Não é permitido excluir a própria conta", 403);
   if (codigo === "SENHA_ADMIN_INVALIDA") throw new ErroDominio("Senha atual do administrador incorreta ou ausente", 422);
   if (codigo === "REDEFINICAO_PROPRIA_SENHA_PROIBIDA") throw new ErroDominio("Use o endpoint de autoatendimento para alterar sua própria senha", 403);
   if (typeof erro === "object" && erro !== null && "code" in erro && ["P2034", "P2028"].includes(String((erro as { code: unknown }).code))) throw new ErroDominio("Conflito concorrente; tente novamente", 409);
@@ -75,6 +76,13 @@ export class UsuariosService {
         : await repo.desativar(id, administradorId, administrador);
       if (!resultado) throw new ErroDominio("Usuário não encontrado", 404);
       return resultado;
+    } catch (erro) { erroRegra(erro); }
+  }
+
+  async excluir(id: number, administradorId: number, administrador: string) {
+    try {
+      const excluido = await repo.excluir(id, administradorId, administrador);
+      if (!excluido) throw new ErroDominio("Usuário não encontrado", 404);
     } catch (erro) { erroRegra(erro); }
   }
 

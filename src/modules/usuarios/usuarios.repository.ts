@@ -129,6 +129,36 @@ export const usuariosRepository = {
     }, { isolationLevel: "Serializable", maxWait: 10_000, timeout: 15_000 });
   },
 
+
+  async excluir(id: number, administradorId: number, administrador: string) {
+    await garantirControle();
+    return prisma.$transaction(async (tx) => {
+      await bloquearOperacoesAdministrativas(tx);
+      const ator = await tx.usuario.findUnique({ where: { id: administradorId } });
+      if (!ator || !ator.ativo || ator.papel !== "ADMINISTRADOR") throw new Error("ATOR_SEM_PERMISSAO");
+      if (id === administradorId) throw new Error("EXCLUSAO_PROPRIA_PROIBIDA");
+
+      const alvo = await tx.usuario.findUnique({ where: { id } });
+      if (!alvo) return false;
+      if (alvo.papel === "ADMINISTRADOR" && alvo.ativo) {
+        const outros = await tx.usuario.count({ where: { ativo: true, papel: "ADMINISTRADOR", id: { not: id } } });
+        if (outros < 1) throw new Error("ULTIMO_ADMINISTRADOR");
+      }
+
+      // Journal e exclusão ficam na mesma transação. RefreshToken usa onDelete:Cascade;
+      // não há relações de domínio apontando para Usuario e o journal guarda o ator como texto.
+      await registrarJournal(tx, {
+        operacao: "EXCLUIR_USUARIO",
+        entidade: "Usuario",
+        dadosAntes: dadosAuditoria({ ...alvo, ativo: alvo.ativo }),
+        dadosDepois: { id: alvo.id, excluido: true },
+        usuario: administrador,
+      });
+      await tx.usuario.delete({ where: { id } });
+      return true;
+    }, { isolationLevel: "Serializable", maxWait: 10_000, timeout: 15_000 });
+  },
+
   async redefinirSenha(id: number, hashSenha: string, administradorId: number, administrador: string) {
     await garantirControle();
     return prisma.$transaction(async (tx) => {
