@@ -93,6 +93,11 @@ function lerResultado<T>(resultado: ResultadoLote<T>, id: number): T {
         "Não é possível concluir a triagem de um lote sem equipamentos.",
         422,
       );
+    case "triagem_incompleta":
+      throw new ErroDominio(
+        "Não é possível concluir a triagem: todos os equipamentos precisam de resultado, responsável, data e justificativa.",
+        422,
+      );
   }
 }
 
@@ -138,7 +143,7 @@ export class LotesService {
       throw new ErroDominio("A data inicial não pode ser posterior à data final.", 422);
     }
 
-    const lotes = await repo.listarPorPeriodo(inicio, fim);
+    const lotes = await repo.listarPorPeriodo(inicio, fim, consulta);
     return lotes.map(resumoParaResposta);
   }
 

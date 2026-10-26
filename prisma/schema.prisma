@@ -56,6 +56,14 @@ enum StatusRastreamento {
   BAIXA_DEFINITIVA
 }
 
+enum ResultadoTriagem {
+  AGUARDANDO_AVALIACAO
+  APROVADO_PARA_DESMONTAGEM
+  DESTINADO_AO_REAPROVEITAMENTO_DE_PECAS
+  DESTINADO_A_RECICLAGEM
+  DESTINADO_AO_DESCARTE_SEGURO
+}
+
 enum EstadoOperacaoRenovacao {
   PENDENTE
   PROCESSANDO
@@ -177,11 +185,19 @@ model Equipamento {
   anoFabricacao       Int
   estadoFisico        EstadoFisico
   statusRastreamento  StatusRastreamento @default(AGUARDANDO_TRIAGEM)
+  resultadoTriagem    ResultadoTriagem?
+  triagemResponsavel  String?
+  triagemEm           DateTime?          @db.DateTime(3)
+  triagemJustificativa String?            @db.Text
+  baixadoEm           DateTime?          @db.DateTime(3)
+  baixaResponsavel    String?
+  baixaJustificativa  String?            @db.Text
   pesoQuilogramas     Decimal            @db.Decimal(8, 3)
   versao              Int                @default(1)
   movimentacoes       Movimentacao[]
 
   @@unique([loteId, posicaoNoLote])
+  @@index([resultadoTriagem])
 }
 
 model Movimentacao {

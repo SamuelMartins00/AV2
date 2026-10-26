@@ -22,6 +22,15 @@ export const ESTADOS_FISICOS = [
 ] as const;
 export type EstadoFisico = (typeof ESTADOS_FISICOS)[number];
 
+export const RESULTADOS_TRIAGEM = [
+  "AGUARDANDO_AVALIACAO",
+  "APROVADO_PARA_DESMONTAGEM",
+  "DESTINADO_AO_REAPROVEITAMENTO_DE_PECAS",
+  "DESTINADO_A_RECICLAGEM",
+  "DESTINADO_AO_DESCARTE_SEGURO",
+] as const;
+export type ResultadoTriagem = (typeof RESULTADOS_TRIAGEM)[number];
+
 export const STATUS_RASTREAMENTO = [
   "AGUARDANDO_TRIAGEM",
   "EM_TRIAGEM",
@@ -33,6 +42,15 @@ export const STATUS_RASTREAMENTO = [
   "BAIXA_DEFINITIVA",
 ] as const;
 export type StatusRastreamento = (typeof STATUS_RASTREAMENTO)[number];
+
+export const STATUS_LOTE = [
+  "RECEBIDO",
+  "EM_TRIAGEM",
+  "TRIAGEM_CONCLUIDA",
+  "ENCAMINHADO",
+  "FINALIZADO",
+] as const;
+export type StatusLote = (typeof STATUS_LOTE)[number];
 
 // Lotes que ainda aceitam novos equipamentos e a conclusão da triagem
 export const STATUS_LOTE_ABERTO = ["RECEBIDO", "EM_TRIAGEM"] as const;

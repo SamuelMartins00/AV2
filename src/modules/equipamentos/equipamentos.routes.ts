@@ -3,12 +3,18 @@ import type { ParamsId } from "../compartilhado/params.js";
 import { EquipamentosController } from "./equipamentos.controller.js";
 import {
   atualizarEstadoSchema,
+  avaliarTriagemSchema,
+  baixaDefinitivaSchema,
   atualizarStatusSchema,
   consultarEquipamentoSchema,
+  listarEquipamentosSchema,
   movimentarSchema,
   type AtualizarEstadoBody,
+  type AvaliarTriagemBody,
+  type BaixaDefinitivaBody,
   type AtualizarStatusBody,
   type MovimentarBody,
+  type ListarEquipamentosQuery,
 } from "./equipamentos.schemas.js";
 import { EquipamentosService } from "./equipamentos.service.js";
 
@@ -25,6 +31,12 @@ export default async function equipamentosRoutes(app: FastifyInstance) {
     app.exigirPapel("ADMINISTRADOR", "GESTOR_ALMOXARIFADO"),
   ];
 
+  app.get<{ Querystring: ListarEquipamentosQuery }>(
+    "/",
+    { schema: listarEquipamentosSchema, onRequest: leitura },
+    controller.listar,
+  );
+
   app.get<{ Params: ParamsId }>(
     "/:id/historico",
     { schema: consultarEquipamentoSchema, onRequest: leitura },
@@ -35,6 +47,18 @@ export default async function equipamentosRoutes(app: FastifyInstance) {
     "/:id/depreciacao",
     { schema: consultarEquipamentoSchema, onRequest: escrita },
     controller.depreciacao,
+  );
+
+  app.post<{ Params: ParamsId; Body: AvaliarTriagemBody }>(
+    "/:id/triagem",
+    { schema: avaliarTriagemSchema, onRequest: escrita },
+    controller.avaliarTriagem,
+  );
+
+  app.post<{ Params: ParamsId; Body: BaixaDefinitivaBody }>(
+    "/:id/baixa-definitiva",
+    { schema: baixaDefinitivaSchema, onRequest: [app.autenticar, app.exigirPapel("ADMINISTRADOR")] },
+    controller.baixarDefinitivamente,
   );
 
   app.patch<{ Params: ParamsId; Body: AtualizarEstadoBody }>(

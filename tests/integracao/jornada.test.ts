@@ -210,11 +210,25 @@ describe("Jornada completa do greencode", () => {
   it("8. a triagem conflita com versão antiga e conclui com a versão correta", async () => {
     const antiga = await chamar("POST", `/lotes/${ctx.lote.id}/triagem`, "gestor", { versao: 1 });
     expect(antiga.status).toBe(409);
+    const incompleta = await chamar("POST", `/lotes/${ctx.lote.id}/triagem`, "gestor", { versao: ctx.lote.versao });
+    expect(incompleta.status).toBe(422);
 
-    const ok = await chamar("POST", `/lotes/${ctx.lote.id}/triagem`, "gestor", { versao: ctx.lote.versao });
+    // A avaliação é individual; a decisão não altera o status operacional.
+    for (const equipamento of ctx.equipamentos) {
+      const avaliacao = await chamar("POST", `/equipamentos/${equipamento.id}/triagem`, "gestor", {
+        versao: equipamento.versao,
+        resultadoTriagem: "APROVADO_PARA_DESMONTAGEM",
+        justificativa: "Avaliação individual concluída para teste.",
+      });
+      expect(avaliacao.status).toBe(200);
+      expect(avaliacao.corpo.resultadoTriagem).toBe("APROVADO_PARA_DESMONTAGEM");
+      expect(avaliacao.corpo.statusRastreamento).toBe("AGUARDANDO_TRIAGEM");
+    }
+    const loteAtualizado = await chamar("GET", `/lotes/${ctx.lote.id}`, "gestor");
+    const ok = await chamar("POST", `/lotes/${ctx.lote.id}/triagem`, "gestor", { versao: loteAtualizado.corpo.versao });
     expect(ok.status).toBe(200);
     expect(ok.corpo.statusProcessamento).toBe("TRIAGEM_CONCLUIDA");
-    expect(ok.corpo.equipamentos.every((e: any) => e.statusRastreamento === "AGUARDANDO_DESMONTE")).toBe(true);
+    expect(ok.corpo.equipamentos.every((e: any) => e.statusRastreamento === "AGUARDANDO_TRIAGEM")).toBe(true);
     ctx.lote = ok.corpo;
     ctx.equipamentos = ok.corpo.equipamentos;
   });
@@ -249,7 +263,7 @@ describe("Jornada completa do greencode", () => {
     // NOVO -> USADO_LEVE piora 2 categorias: exige justificativa
     const novo = ctx.equipamentos[1];
     const semJustificativa = await chamar("PATCH", `/equipamentos/${novo.id}/estado-fisico`, "gestor", {
-      versao: novo.versao + 1, // a triagem incrementou a versão
+      versao: novo.versao, // versão retornada após a avaliação individual
       novoEstado: "USADO_LEVE",
     });
     expect(semJustificativa.status).toBe(422);
@@ -272,7 +286,7 @@ describe("Jornada completa do greencode", () => {
     const org = await chamar("GET", `/relatorios/organizacao/${ctx.organizacaoId}?${periodo}`, "auditor");
     expect(org.status).toBe(200);
     expect(org.corpo).toMatchObject({ lotesRecebidos: 1, equipamentosRecebidos: 4, pesoTotalKg: 14 });
-    expect(org.corpo.equipamentosPorStatus).toMatchObject({ AGUARDANDO_DESMONTE: 3, EM_DESMONTE: 1, AGUARDANDO_TRIAGEM: 0 });
+    expect(org.corpo.equipamentosPorStatus).toMatchObject({ AGUARDANDO_DESMONTE: 0, EM_DESMONTE: 1, AGUARDANDO_TRIAGEM: 3 });
 
     const porStatus = await chamar("GET", "/relatorios/status?status=EM_DESMONTE", "auditor");
     expect(porStatus.corpo.quantidade).toBe(1);
@@ -573,6 +587,29 @@ describe("Sessão e auditoria", () => {
       const registro = await prisma.usuario.findUniqueOrThrow({ where: { usuario: login } });
       if (registro.papel !== "ADMINISTRADOR") expect((await chamar("GET", "/auth/me", login)).status).toBe(401);
     }
+
+    // Este teste pode rebaixar o usuário `admin`, invalidando seu access token.
+    // Restaura o fixture para que os testes seguintes continuem testando suas
+    // próprias regras de autorização, sem depender da ordem/resultado da corrida.
+    const adminAtual = await prisma.usuario.findUniqueOrThrow({ where: { usuario: "admin" } });
+    if (adminAtual.papel !== "ADMINISTRADOR") {
+      const administradorAtivo = await prisma.usuario.findFirstOrThrow({
+        where: { ativo: true, papel: "ADMINISTRADOR" },
+      });
+      const promover = await chamar(
+        "PATCH",
+        `/usuarios/${adminAtual.id}`,
+        administradorAtivo.usuario,
+        { papel: "ADMINISTRADOR", senhaAtualAdmin: administradorAtivo.usuario === "ana.silva" ? "Senha@1234" : SENHAS.admin },
+      );
+      expect(promover.status).toBe(200);
+    }
+    const loginAdmin = await chamar("POST", "/auth/login", undefined, {
+      usuario: "admin",
+      senha: SENHAS.admin,
+    });
+    expect(loginAdmin.status).toBe(200);
+    token.admin = loginAdmin.corpo.accessToken;
   });
 });
 
@@ -649,5 +686,35 @@ describe("Encerramento de contratos", () => {
     const aceita = await chamar("POST", `/organizacoes/${org.id}/contrato/encerrar-retroativo`, "admin", corpo);
     expect(aceita.status).toBe(200);
     expect(aceita.corpo.contrato.encerradoEm).not.toBeNull();
+  });
+});
+
+describe("Baixa definitiva", () => {
+  it("exige operação concluída, administrador, justificativa, versão e auditoria", async () => {
+    const eq = ctx.equipamentos[0];
+    const atual = (await chamar("GET", `/equipamentos/${eq.id}/historico`, "gestor")).corpo.equipamento;
+    const baixaPrematura = await chamar("POST", `/equipamentos/${eq.id}/baixa-definitiva`, "admin", {
+      versao: atual.versao,
+      justificativa: "Tentativa antes da operação final.",
+    });
+    expect(baixaPrematura.status).toBe(409);
+    const resultadoOperacional = await chamar("PATCH", `/equipamentos/${eq.id}/status`, "gestor", {
+      versao: atual.versao,
+      novoStatus: "DESCARTE_SEGURO",
+      justificativa: "Operação de descarte seguro concluída.",
+    });
+    expect(resultadoOperacional.status).toBe(200);
+    const eqAtual = resultadoOperacional.corpo;
+    const corpo = { versao: eqAtual.versao, justificativa: "Baixa autorizada após conferência documental." };
+    const negada = await chamar("POST", `/equipamentos/${eq.id}/baixa-definitiva`, "gestor", corpo);
+    expect(negada.status).toBe(403);
+    const baixa = await chamar("POST", `/equipamentos/${eq.id}/baixa-definitiva`, "admin", corpo);
+    expect(baixa.status).toBe(200);
+    expect(baixa.corpo).toMatchObject({ statusRastreamento: "BAIXA_DEFINITIVA", baixaResponsavel: "admin", baixaJustificativa: corpo.justificativa });
+    const duplicada = await chamar("POST", `/equipamentos/${eq.id}/baixa-definitiva`, "admin", corpo);
+    expect(duplicada.status).toBe(409);
+    const movimentacao = await chamar("POST", `/equipamentos/${eq.id}/movimentacoes`, "gestor", { destino: "Estoque" });
+    expect(movimentacao.status).toBe(409);
+    expect(await prisma.journalTransacao.count({ where: { operacao: "BAIXA_DEFINITIVA_EQUIPAMENTO", usuarioResponsavel: "admin" } })).toBe(1);
   });
 });

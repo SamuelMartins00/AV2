@@ -34,10 +34,17 @@ describe("status de rastreamento", () => {
   it("só permite EM_DESMONTE a partir de AGUARDANDO_DESMONTE", () => {
     expect(() =>
       validarMudancaStatus("AGUARDANDO_TRIAGEM", "EM_DESMONTE", "Teste"),
-    ).toThrow("O equipamento só pode entrar em desmonte após a triagem completa.");
+    ).toThrow("Somente equipamento aprovado para desmontagem na triagem pode iniciar essa operação.");
     expect(() =>
-      validarMudancaStatus("AGUARDANDO_DESMONTE", "EM_DESMONTE", "Teste"),
+      validarMudancaStatus("AGUARDANDO_DESMONTE", "EM_DESMONTE", "Teste", "APROVADO_PARA_DESMONTAGEM"),
     ).not.toThrow();
+  });
+
+  it("não permite registrar destinação operacional sem executar desmontagem", () => {
+    expect(() => validarMudancaStatus("AGUARDANDO_TRIAGEM", "MATERIAL_RECICLAVEL", "Executado"))
+      .toThrow("O resultado operacional só pode ser registrado após a execução da operação correspondente.");
+    expect(() => validarMudancaStatus("EM_DESMONTE", "BAIXA_DEFINITIVA", "Baixa administrativa"))
+      .toThrow("A baixa definitiva deve ser registrada pela operação específica de baixa.");
   });
 
   it("exige justificativa em toda mudança de status", () => {
@@ -72,11 +79,15 @@ describe("movimentação", () => {
       validarMovimentacao("Bancada de Desmontagem", "ana", "AGUARDANDO_TRIAGEM"),
     ).toThrow("O equipamento só pode ser movimentado para desmontagem após a triagem.");
     expect(() =>
-      validarMovimentacao("Bancada de Desmontagem", "ana", "AGUARDANDO_DESMONTE"),
+      validarMovimentacao("Bancada de Desmontagem", "ana", "AGUARDANDO_DESMONTE", "APROVADO_PARA_DESMONTAGEM"),
     ).not.toThrow();
     expect(() =>
-      validarMovimentacao("Bancada de Desmontagem", "ana", "EM_DESMONTE"),
+      validarMovimentacao("Bancada de Desmontagem", "ana", "EM_DESMONTE", "APROVADO_PARA_DESMONTAGEM"),
     ).not.toThrow();
+  });
+
+  it("bloqueia desmontagem quando a triagem individual não aprovou", () => {
+    expect(() => validarMovimentacao("Bancada de Desmontagem", "ana", "AGUARDANDO_DESMONTE", "DESTINADO_A_RECICLAGEM")).toThrow("A triagem individual precisa aprovar o equipamento para desmontagem.");
   });
 
   it("permite outros destinos em qualquer status", () => {

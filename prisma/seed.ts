@@ -278,6 +278,8 @@ async function criarDadosDemonstrativos() {
               anoFabricacao: eq.ano,
               estadoFisico: eq.estado,
               statusRastreamento: eq.status,
+              // Não inferir aprovação de triagem a partir de um status operacional histórico.
+              resultadoTriagem: eq.status === "AGUARDANDO_TRIAGEM" ? "AGUARDANDO_AVALIACAO" : null,
               pesoQuilogramas: eq.peso,
             },
           });

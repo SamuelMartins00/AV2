@@ -1,6 +1,8 @@
 import {
   ESTADOS_FISICOS,
   TIPOS_EQUIPAMENTO,
+  STATUS_LOTE,
+  type StatusLote,
   type EstadoFisico,
   type TipoEquipamento,
 } from "../../dominio/enums.js";
@@ -35,6 +37,9 @@ export interface TriagemBody {
 export interface ListarLotesQuery {
   inicio?: string;
   fim?: string;
+  organizacaoId?: number;
+  statusProcessamento?: StatusLote;
+  notaFiscal?: string;
 }
 
 const equipamentoSchema = {
@@ -85,6 +90,9 @@ export const listarLotesSchema = {
     properties: {
       inicio: { type: "string", minLength: 10, maxLength: 40 },
       fim: { type: "string", minLength: 10, maxLength: 40 },
+      organizacaoId: { type: "integer", minimum: 1 },
+      statusProcessamento: { type: "string", enum: [...STATUS_LOTE] },
+      notaFiscal: { type: "string", minLength: 1, maxLength: 60 },
     },
   },
 } as const;

@@ -3,6 +3,7 @@ import {
   ESTADOS_FISICOS,
   type EstadoFisico,
   type StatusRastreamento,
+  type ResultadoTriagem,
   type TipoEquipamento,
 } from "./enums.js";
 
@@ -28,15 +29,25 @@ export function validarMudancaStatus(
   atual: StatusRastreamento,
   novo: StatusRastreamento,
   justificativa: string,
+  resultadoTriagem?: ResultadoTriagem | null,
 ): void {
   if (!justificativa.trim()) {
     throw new ErroDominio("A justificativa não pode ser vazia.", 422);
   }
-  if (novo === "EM_DESMONTE" && atual !== "AGUARDANDO_DESMONTE") {
-    throw new ErroDominio(
-      "O equipamento só pode entrar em desmonte após a triagem completa.",
-      409,
-    );
+  if (["BAIXA_DEFINITIVA", "PECAS_REAPROVEITADAS", "MATERIAL_RECICLAVEL", "DESCARTE_SEGURO"].includes(atual)) {
+    throw new ErroDominio("Não é permitido alterar o status operacional de um equipamento encerrado ou destinado.", 409);
+  }
+  if (novo === "BAIXA_DEFINITIVA") {
+    throw new ErroDominio("A baixa definitiva deve ser registrada pela operação específica de baixa.", 409);
+  }
+  if (["PECAS_REAPROVEITADAS", "MATERIAL_RECICLAVEL", "DESCARTE_SEGURO"].includes(novo) && atual !== "EM_DESMONTE") {
+    throw new ErroDominio("O resultado operacional só pode ser registrado após a execução da operação correspondente.", 409);
+  }
+  if (novo === "EM_DESMONTE" && resultadoTriagem !== "APROVADO_PARA_DESMONTAGEM") {
+    throw new ErroDominio("Somente equipamento aprovado para desmontagem na triagem pode iniciar essa operação.", 409);
+  }
+  if (novo === "EM_DESMONTE" && atual !== "AGUARDANDO_DESMONTE" && atual !== "AGUARDANDO_TRIAGEM") {
+    throw new ErroDominio("O equipamento não está em uma etapa que permita iniciar a desmontagem.", 409);
   }
 }
 
@@ -44,6 +55,7 @@ export function validarMovimentacao(
   destino: string,
   responsavel: string,
   statusAtual: StatusRastreamento,
+  resultadoTriagem?: ResultadoTriagem | null,
 ): void {
   if (!destino.trim()) {
     throw new ErroDominio("O destino da movimentação é obrigatório.", 422);
@@ -59,12 +71,16 @@ export function validarMovimentacao(
   if (
     destinoNormalizado.includes("desmont") &&
     statusAtual !== "AGUARDANDO_DESMONTE" &&
-    statusAtual !== "EM_DESMONTE"
+    statusAtual !== "EM_DESMONTE" &&
+    !(statusAtual === "AGUARDANDO_TRIAGEM" && resultadoTriagem === "APROVADO_PARA_DESMONTAGEM")
   ) {
     throw new ErroDominio(
       "O equipamento só pode ser movimentado para desmontagem após a triagem.",
       409,
     );
+  }
+  if (destinoNormalizado.includes("desmont") && resultadoTriagem !== "APROVADO_PARA_DESMONTAGEM") {
+    throw new ErroDominio("A triagem individual precisa aprovar o equipamento para desmontagem.", 409);
   }
 }
 

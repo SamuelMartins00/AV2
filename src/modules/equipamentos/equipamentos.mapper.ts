@@ -12,6 +12,13 @@ export function equipamentoParaResposta(eq: Equipamento) {
     anoFabricacao: eq.anoFabricacao,
     estadoFisico: eq.estadoFisico,
     statusRastreamento: eq.statusRastreamento,
+    resultadoTriagem: eq.resultadoTriagem,
+    triagemResponsavel: eq.triagemResponsavel,
+    triagemEm: eq.triagemEm,
+    triagemJustificativa: eq.triagemJustificativa,
+    baixadoEm: eq.baixadoEm,
+    baixaResponsavel: eq.baixaResponsavel,
+    baixaJustificativa: eq.baixaJustificativa,
     pesoQuilogramas: eq.pesoQuilogramas.toNumber(),
     versao: eq.versao,
   };

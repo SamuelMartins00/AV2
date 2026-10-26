@@ -1,9 +1,9 @@
 import { prisma } from "../../config/prisma.js";
 import {
   STATUS_LOTE_ABERTO,
-  STATUS_PRE_TRIAGEM,
   type EstadoFisico,
   type TipoEquipamento,
+  type StatusLote,
 } from "../../dominio/enums.js";
 import { gerarCodigoBarras } from "../../dominio/equipamento.js";
 import type { Prisma } from "../../generated/prisma/client.js";
@@ -39,7 +39,8 @@ export type ResultadoLote<T> =
   | { tipo: "conflito" }
   | { tipo: "nao_encontrada" }
   | { tipo: "status_invalido" }
-  | { tipo: "sem_equipamentos" };
+  | { tipo: "sem_equipamentos" }
+  | { tipo: "triagem_incompleta" };
 
 async function ultimaSequencia(
   tx: Prisma.TransactionClient,
@@ -85,6 +86,7 @@ async function inserirEquipamentos(
         anoFabricacao: item.anoFabricacao,
         estadoFisico: item.estadoFisico,
         pesoQuilogramas: item.pesoQuilogramas,
+        resultadoTriagem: "AGUARDANDO_AVALIACAO",
       },
     });
   }
@@ -99,9 +101,18 @@ export const lotesRepository = {
     return prisma.lote.findUnique({ where: { id }, include: comEquipamentos });
   },
 
-  listarPorPeriodo(inicio?: Date, fim?: Date) {
+  listarPorPeriodo(
+    inicio?: Date,
+    fim?: Date,
+    filtros?: { organizacaoId?: number; statusProcessamento?: StatusLote; notaFiscal?: string },
+  ) {
     return prisma.lote.findMany({
-      where: { dataEntrada: { gte: inicio, lte: fim } },
+      where: {
+        dataEntrada: { gte: inicio, lte: fim },
+        organizacaoId: filtros?.organizacaoId,
+        statusProcessamento: filtros?.statusProcessamento,
+        notaFiscal: filtros?.notaFiscal ? { contains: filtros.notaFiscal } : undefined,
+      },
       include: { equipamentos: { select: { pesoQuilogramas: true } } },
       orderBy: { dataEntrada: "desc" },
     });
@@ -179,6 +190,49 @@ export const lotesRepository = {
     );
   },
 
+  avaliarEquipamento(
+    equipamentoId: number,
+    versao: number,
+    resultadoTriagem: import("../../dominio/enums.js").ResultadoTriagem,
+    justificativa: string,
+    usuario: string,
+  ) {
+    return prisma.$transaction(async (tx) => {
+      const antes = await tx.equipamento.findUnique({ where: { id: equipamentoId } });
+      if (!antes) return { tipo: "nao_encontrada" as const };
+      if (antes.versao !== versao) return { tipo: "conflito" as const };
+      if (!["AGUARDANDO_TRIAGEM", "EM_TRIAGEM"].includes(antes.statusRastreamento)) {
+        return { tipo: "status_invalido" as const };
+      }
+      const loteTravado = await tx.lote.updateMany({
+        where: { id: antes.loteId, statusProcessamento: { in: [...STATUS_LOTE_ABERTO] } },
+        data: { versao: { increment: 1 } },
+      });
+      if (!loteTravado.count) return { tipo: "status_invalido" as const };
+      const atualizado = await tx.equipamento.updateMany({
+
+        where: { id: equipamentoId, versao },
+        data: {
+          resultadoTriagem,
+          triagemResponsavel: usuario,
+          triagemEm: new Date(),
+          triagemJustificativa: justificativa,
+          versao: { increment: 1 },
+        },
+      });
+      if (!atualizado.count) return { tipo: "conflito" as const };
+      const depois = await tx.equipamento.findUniqueOrThrow({ where: { id: equipamentoId } });
+      await registrarJournal(tx, {
+        operacao: "AVALIAR_TRIAGEM_EQUIPAMENTO",
+        entidade: "Equipamento",
+        dadosAntes: antes,
+        dadosDepois: depois,
+        usuario,
+      });
+      return { tipo: "ok" as const, valor: depois };
+    });
+  },
+
   concluirTriagem(loteId: number, versao: number, usuario: string) {
     return prisma.$transaction(
       async (tx): Promise<ResultadoLote<LoteCompleto>> => {
@@ -187,10 +241,23 @@ export const lotesRepository = {
           include: comEquipamentos,
         });
         if (!antes) return { tipo: "nao_encontrada" };
-        if (antes.equipamentos.length === 0) return { tipo: "sem_equipamentos" };
+        // Prioriza o conflito de versão para que uma requisição obsoleta nunca
+        // seja confundida com uma validação de negócio (ex.: triagem incompleta).
+        if (antes.versao !== versao) return { tipo: "conflito" };
         if (!(STATUS_LOTE_ABERTO as readonly string[]).includes(antes.statusProcessamento)) {
           return { tipo: "status_invalido" };
         }
+        if (antes.equipamentos.length === 0) return { tipo: "sem_equipamentos" };
+
+        const pendentes = antes.equipamentos.filter(
+          (equipamento) =>
+            !equipamento.resultadoTriagem ||
+            equipamento.resultadoTriagem === "AGUARDANDO_AVALIACAO" ||
+            !equipamento.triagemResponsavel ||
+            !equipamento.triagemEm ||
+            !equipamento.triagemJustificativa?.trim(),
+        );
+        if (pendentes.length > 0) return { tipo: "triagem_incompleta" };
 
         const resultado = await tx.lote.updateMany({
           where: {
@@ -204,17 +271,6 @@ export const lotesRepository = {
           },
         });
         if (resultado.count === 0) return { tipo: "conflito" };
-
-        await tx.equipamento.updateMany({
-          where: {
-            loteId,
-            statusRastreamento: { in: [...STATUS_PRE_TRIAGEM] },
-          },
-          data: {
-            statusRastreamento: "AGUARDANDO_DESMONTE",
-            versao: { increment: 1 },
-          },
-        });
 
         const depois = await tx.lote.findUniqueOrThrow({
           where: { id: loteId },
